@@ -1,7 +1,9 @@
-export {};
+import type { SmartlifeApi } from './index';
 
 declare global {
   interface Window {
-    smartlife: Record<string, never>;
+    smartlife: SmartlifeApi;
   }
 }
+
+export {};
