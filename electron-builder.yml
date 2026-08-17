@@ -1,0 +1,12 @@
+appId: com.smartlife.app
+productName: SmartLife
+directories:
+  output: release
+  buildResources: build
+files:
+  - out/**/*
+  - package.json
+mac:
+  category: public.app-category.productivity
+  target:
+    - target: dir
