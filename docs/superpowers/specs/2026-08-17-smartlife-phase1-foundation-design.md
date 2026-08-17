@@ -295,13 +295,23 @@ the app on this Mac.
 ## npm scripts
 
 ```
-npm run dev         # electron-vite dev, HMR
-npm run build        # electron-vite build
-npm run package       # electron-builder, unsigned .app to dist/
-npm run test         # vitest run
-npm run lint          # eslint
-npm run typecheck      # tsc --noEmit (both node and web tsconfigs)
+npm run dev          # electron-vite dev, HMR
+npm run build         # electron-vite build
+npm run package        # electron-builder, unsigned .app to release/
+npm run test          # runs vitest through Electron's own Node runtime — see below
+npm run lint           # eslint
+npm run typecheck       # tsc --noEmit (both node and web tsconfigs)
+postinstall           # electron-builder install-app-deps, runs automatically after npm install
 ```
+
+`better-sqlite3` is a native module whose compiled binary must match the ABI
+of whatever process loads it. Electron bundles its own Node.js with a
+different ABI than the system Node `npm install` targets, so `postinstall`
+rebuilds the module for Electron's ABI on every install, and `test` runs
+vitest via `ELECTRON_RUN_AS_NODE=1 electron ...` so the test run uses that
+same ABI instead of a conflicting one — one consistent ABI state everywhere,
+discovered and fixed during Phase 1 implementation (see the design's
+Testing section note below and the implementation's progress ledger).
 
 ## Explicitly out of scope for Phase 1
 

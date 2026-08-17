@@ -467,7 +467,7 @@ describe('runMigrations', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npx vitest run src/main/db/migrate.test.ts`
+Run: `npm run test -- src/main/db/migrate.test.ts`
 Expected: FAIL — `./migrate` has no exported member `runMigrations` (module doesn't exist yet).
 
 - [ ] **Step 3: Implement the migration runner**
@@ -512,7 +512,7 @@ export function runMigrations(db: Database.Database, migrations: Migration[]): v
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `npx vitest run src/main/db/migrate.test.ts`
+Run: `npm run test -- src/main/db/migrate.test.ts`
 Expected: PASS, 3/3.
 
 - [ ] **Step 5: Write the migration file**
@@ -566,7 +566,7 @@ describe('openDb', () => {
 
 - [ ] **Step 7: Run test to verify it fails**
 
-Run: `npx vitest run src/main/db/index.test.ts`
+Run: `npm run test -- src/main/db/index.test.ts`
 Expected: FAIL — `./index` doesn't exist yet.
 
 - [ ] **Step 8: Implement `openDb`/`getDb`**
@@ -595,7 +595,7 @@ No module-level singleton here — `openDb()` returns the connection once and ev
 
 - [ ] **Step 9: Run test to verify it passes**
 
-Run: `npx vitest run src/main/db/index.test.ts`
+Run: `npm run test -- src/main/db/index.test.ts`
 Expected: PASS, 1/1.
 
 - [ ] **Step 10: Run full check**
@@ -670,7 +670,7 @@ describe('theme preference persistence', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npx vitest run src/main/ipc.test.ts`
+Run: `npm run test -- src/main/ipc.test.ts`
 Expected: FAIL — `./ipc` doesn't exist yet.
 
 - [ ] **Step 3: Implement `main/ipc.ts`**
@@ -714,7 +714,7 @@ export function registerIpcHandlers(db: Database.Database, getWindow: () => Brow
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `npx vitest run src/main/ipc.test.ts`
+Run: `npm run test -- src/main/ipc.test.ts`
 Expected: PASS, 4/4.
 
 - [ ] **Step 5: Write the real preload bridge**
@@ -817,7 +817,7 @@ describe('buildCsp', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npx vitest run src/main/csp.test.ts`
+Run: `npm run test -- src/main/csp.test.ts`
 Expected: FAIL — `./csp` doesn't exist yet.
 
 - [ ] **Step 3: Implement `csp.ts`**
@@ -838,7 +838,7 @@ export function buildCsp(isDev: boolean): string {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `npx vitest run src/main/csp.test.ts`
+Run: `npm run test -- src/main/csp.test.ts`
 Expected: PASS, 2/2.
 
 - [ ] **Step 5: Write the failing log test**
@@ -877,7 +877,7 @@ describe('logError', () => {
 
 - [ ] **Step 6: Run test to verify it fails**
 
-Run: `npx vitest run src/main/log.test.ts`
+Run: `npm run test -- src/main/log.test.ts`
 Expected: FAIL — `./log` doesn't exist yet.
 
 - [ ] **Step 7: Implement `log.ts`**
@@ -901,7 +901,7 @@ export function logError(context: string, error: unknown): void {
 
 - [ ] **Step 8: Run test to verify it passes**
 
-Run: `npx vitest run src/main/log.test.ts`
+Run: `npm run test -- src/main/log.test.ts`
 Expected: PASS, 1/1.
 
 - [ ] **Step 9: Write the menu**
@@ -1211,7 +1211,7 @@ describe('ThemeProvider', () => {
 
 - [ ] **Step 3: Run test to verify it fails**
 
-Run: `npx vitest run src/renderer/src/theme/ThemeProvider.test.tsx`
+Run: `npm run test -- src/renderer/src/theme/ThemeProvider.test.tsx`
 Expected: FAIL — `./ThemeProvider` doesn't exist yet.
 
 - [ ] **Step 4: Implement `ThemeProvider.tsx`**
@@ -1276,7 +1276,7 @@ export function useTheme(): ThemeContextValue {
 
 - [ ] **Step 5: Run test to verify it passes**
 
-Run: `npx vitest run src/renderer/src/theme/ThemeProvider.test.tsx`
+Run: `npm run test -- src/renderer/src/theme/ThemeProvider.test.tsx`
 Expected: PASS, 2/2.
 
 - [ ] **Step 6: Run full check**
@@ -1359,7 +1359,7 @@ describe('getSectionTheme', () => {
 
 - [ ] **Step 3: Run test to verify it fails**
 
-Run: `npx vitest run src/renderer/src/nav/sectionThemes.test.ts`
+Run: `npm run test -- src/renderer/src/nav/sectionThemes.test.ts`
 Expected: FAIL — `./sectionThemes` doesn't exist yet.
 
 - [ ] **Step 4: Implement `sectionThemes.ts`**
@@ -1393,7 +1393,7 @@ export function getSectionTheme(slug: string): SectionTheme {
 
 - [ ] **Step 5: Run test to verify it passes**
 
-Run: `npx vitest run src/renderer/src/nav/sectionThemes.test.ts`
+Run: `npm run test -- src/renderer/src/nav/sectionThemes.test.ts`
 Expected: PASS, 2/2.
 
 - [ ] **Step 6: Write the Sidebar**
@@ -1461,7 +1461,7 @@ describe('greeting', () => {
 
 - [ ] **Step 8: Run test to verify it fails**
 
-Run: `npx vitest run src/renderer/src/routes/Home.test.tsx`
+Run: `npm run test -- src/renderer/src/routes/Home.test.tsx`
 Expected: FAIL — `./Home` doesn't exist yet.
 
 - [ ] **Step 9: Implement `Home.tsx`**
@@ -1488,7 +1488,7 @@ export function Home() {
 
 - [ ] **Step 10: Run test to verify it passes**
 
-Run: `npx vitest run src/renderer/src/routes/Home.test.tsx`
+Run: `npm run test -- src/renderer/src/routes/Home.test.tsx`
 Expected: PASS, 3/3.
 
 - [ ] **Step 11: Write `Settings.tsx` and `ComingSoon.tsx`**
@@ -1612,7 +1612,7 @@ describe('App', () => {
 
 - [ ] **Step 13: Run test to verify it fails**
 
-Run: `npx vitest run src/renderer/src/App.test.tsx`
+Run: `npm run test -- src/renderer/src/App.test.tsx`
 Expected: FAIL — `App` still renders Task 1's placeholder, no `link`/`button` roles found.
 
 - [ ] **Step 14: Implement the full `App.tsx`**
@@ -1681,7 +1681,7 @@ createRoot(document.getElementById('root')!).render(
 
 - [ ] **Step 16: Run test to verify it passes**
 
-Run: `npx vitest run src/renderer/src/App.test.tsx`
+Run: `npm run test -- src/renderer/src/App.test.tsx`
 Expected: PASS, 2/2.
 
 - [ ] **Step 17: Run full check**
