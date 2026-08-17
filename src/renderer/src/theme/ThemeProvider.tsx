@@ -22,10 +22,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    window.smartlife.theme.get().then((value) => {
-      setPreferenceState(value);
-      setLoaded(true);
-    });
+    window.smartlife.theme
+      .get()
+      .then((value) => setPreferenceState(value))
+      .catch(() => {
+        // Falls back to the 'system' default already in state — the app still renders.
+      })
+      .finally(() => setLoaded(true));
     setSystemIsDark(window.matchMedia('(prefers-color-scheme: dark)').matches);
     return window.smartlife.theme.onSystemChange((isDark) => setSystemIsDark(isDark));
   }, []);
@@ -40,7 +43,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   function setPreference(value: ThemePreference): void {
     setPreferenceState(value);
-    window.smartlife.theme.set(value);
+    window.smartlife.theme.set(value).catch(() => {
+      // Best-effort persistence — the in-memory preference for this session still applies.
+    });
   }
 
   if (!loaded) return null;

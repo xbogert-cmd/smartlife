@@ -25,6 +25,7 @@ function Shell() {
           {NAV_SECTIONS.filter((section) => section.path !== '/' && section.path !== '/settings').map((section) => (
             <Route key={section.slug} path={section.path} element={<ComingSoon label={section.label} />} />
           ))}
+          <Route path="*" element={<Home />} />
         </Routes>
       </main>
     </div>

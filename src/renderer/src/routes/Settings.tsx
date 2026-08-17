@@ -8,7 +8,7 @@ export function Settings() {
   const [version, setVersion] = useState('');
 
   useEffect(() => {
-    window.smartlife.app.getVersion().then(setVersion);
+    window.smartlife.app.getVersion().then(setVersion).catch(() => {});
   }, []);
 
   return (

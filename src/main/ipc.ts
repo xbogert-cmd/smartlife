@@ -24,6 +24,7 @@ export function setThemePreference(db: Database.Database, value: ThemePreference
 export function registerIpcHandlers(db: Database.Database, getWindow: () => BrowserWindow | null): void {
   ipcMain.handle('theme:get', () => getThemePreference(db));
   ipcMain.handle('theme:set', (_event, value: ThemePreference) => {
+    if (!VALID_THEMES.includes(value)) return;
     setThemePreference(db, value);
   });
   ipcMain.handle('app:getVersion', () => app.getVersion());

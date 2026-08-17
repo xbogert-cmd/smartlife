@@ -5,20 +5,20 @@
 }
 
 :root,
-[data-theme="light"] {
-  --color-bg: #f7f7f8;
-  --color-surface: #ffffff;
-  --color-border: #e4e4e7;
-  --color-text: #18181b;
-  --color-text-muted: #71717a;
-}
-
 [data-theme="dark"] {
   --color-bg: #0b0b0d;
   --color-surface: #17171a;
   --color-border: #27272a;
   --color-text: #f4f4f5;
   --color-text-muted: #a1a1aa;
+}
+
+[data-theme="light"] {
+  --color-bg: #f7f7f8;
+  --color-surface: #ffffff;
+  --color-border: #e4e4e7;
+  --color-text: #18181b;
+  --color-text-muted: #71717a;
 }
 
 body {
