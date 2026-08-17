@@ -5,9 +5,10 @@
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
+    "postinstall": "electron-builder install-app-deps",
     "build": "electron-vite build",
     "package": "electron-vite build && electron-builder",
-    "test": "vitest run",
+    "test": "ELECTRON_RUN_AS_NODE=1 electron ./node_modules/vitest/vitest.mjs run",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json"
   },
