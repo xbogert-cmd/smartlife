@@ -203,6 +203,32 @@ window.smartlife = {
   concerns start in Phase 5 (embedded browser), which needs its own,
   separately-reviewed sandboxing story.
 
+## macOS app conventions
+
+Three easy-to-miss Electron defaults that read as broken/unpolished on macOS
+if left unset — cheap to get right now, annoying to notice and fix later
+because by then they're load-bearing habits:
+
+- **Single instance lock** (`app.requestSingleInstanceLock()`): a second
+  launch (e.g. double-clicking the `.app` again) quits immediately and
+  focuses the existing window instead of opening a second `better-sqlite3`
+  connection against the same file. Without this, two instances writing to
+  `smartlife.db` at once is a real corruption risk, not a hypothetical one.
+- **Menu bar with standard Edit roles**: Electron ships no menu bar by
+  default, which silently breaks Cmd+C/Cmd+X/Cmd+V/Cmd+A/Cmd+Z in every text
+  input — those shortcuts only work because of the OS-level Edit menu's
+  `role: 'copy'/'cut'/'paste'/'selectAll'/'undo'` entries, which don't exist
+  until you build the menu. Phase 1 ships a minimal `Menu.buildFromTemplate`
+  with App/Edit/View/Window menus using Electron's built-in roles, plus one
+  custom item: Settings under the App menu, bound to Cmd+,.
+- **Quit/activate lifecycle**: on macOS, closing the last window should not
+  quit the app (`app.on('window-all-closed')` is a no-op when
+  `process.platform === 'darwin'`), and clicking the Dock icon after all
+  windows are closed should reopen one (`app.on('activate')` creates a new
+  `BrowserWindow` if none exist). This is the behavior every native Mac app
+  has; skipping it is the single fastest way for SmartLife to feel like a
+  ported web app instead of a Mac app.
+
 ## Error handling
 
 Phase 1's only real failure modes are local: the DB fails to open, or a
