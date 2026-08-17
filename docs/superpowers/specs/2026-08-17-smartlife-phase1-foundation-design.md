@@ -143,19 +143,22 @@ tables this phase needs; Drizzle or similar gets evaluated when a later phase
 justify it — adding it now for two tables would be solving a problem that
 doesn't exist yet.
 
-**Migration runner** (`src/main/db/migrate.ts`): reads `.sql` files from
-`migrations/` in filename order, tracks applied ones in `schema_migrations`,
-applies any not-yet-applied file inside a single transaction, throws (caught
-by `main/index.ts`, see Error Handling) if a migration fails partway.
+**Migration runner** (`src/main/db/migrate.ts`): owns `schema_migrations`
+itself (`create table if not exists`, run unconditionally before checking
+what's applied — it has to exist before anything can be tracked against it).
+Individual migration files never create it themselves. Given a static list
+of `{ filename, sql }` migrations, the runner applies any filename not yet
+in `schema_migrations`, in filename order, each inside its own transaction
+that also records the row — throws (caught by `main/index.ts`, see Error
+Handling) if a migration fails partway, leaving that one migration
+unapplied and uncommitted. Migration content is imported via Vite's `?raw`
+suffix (`import sql from './migrations/0001_init.sql?raw'`) and bundled as
+plain strings at build time — no runtime filesystem read, so nothing extra
+needs copying into the packaged app.
 
 **`migrations/0001_init.sql`:**
 
 ```sql
-create table schema_migrations (
-  filename text primary key,
-  applied_at text not null default (datetime('now'))
-);
-
 create table settings (
   key text primary key,
   value text not null
@@ -185,6 +188,9 @@ window.smartlife = {
   app: {
     getVersion(): Promise<string>,
   },
+  navigation: {
+    onNavigate(cb: (path: string) => void): () => void, // returns unsubscribe
+  },
 }
 ```
 
@@ -193,12 +199,25 @@ window.smartlife = {
   subscribes to Electron's `nativeTheme.on('updated', ...)` once and
   broadcasts via `webContents.send('theme:system-changed', ...)`; preload
   relays it into the callback the renderer registered.
-- Content-Security-Policy (set via a `<meta>` tag in
-  `renderer/index.html`): `default-src 'self'; script-src 'self';
-  style-src 'self' 'unsafe-inline'`. The `style-src` relaxation is
-  deliberate and scoped narrowly — `framer-motion` sets inline `style`
-  attributes for its transforms, which CSP's `style-src` governs even
-  without a `<style>` tag involved; `script-src` stays strict.
+- `navigation.onNavigate` exists to complete the App-menu Settings item
+  (Cmd+,) described below in "macOS app conventions" — clicking it sends
+  `webContents.send('navigate', '/settings')` from the main process; the
+  renderer's router subscribes and calls its own navigate function.
+- Content-Security-Policy is set via
+  `session.defaultSession.webRequest.onHeadersReceived` in the main
+  process, not a static `<meta>` tag — a static tag would also apply to
+  Vite's dev server response (`ELECTRON_RENDERER_URL`) and break its HMR
+  client, which needs `'unsafe-eval'` and a `connect-src` allowance for its
+  websocket. Setting it from the main process lets it differ by
+  environment: relaxed enough for HMR in dev
+  (`script-src 'self' 'unsafe-inline' 'unsafe-eval'; connect-src 'self'
+  ws://localhost:*`), and the strict production policy — `default-src
+  'self'; script-src 'self'; style-src 'self' 'unsafe-inline'` — only in
+  the packaged app. The `style-src 'unsafe-inline'` in both is the same
+  deliberate, narrowly-scoped relaxation as before: `framer-motion` sets
+  inline `style` attributes for its transforms, which CSP's `style-src`
+  governs even without a `<style>` tag involved; `script-src` stays strict
+  in production.
 - No `<webview>` tag and no second `BrowserWindow` in Phase 1 — those
   concerns start in Phase 5 (embedded browser), which needs its own,
   separately-reviewed sandboxing story.
