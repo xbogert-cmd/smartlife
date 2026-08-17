@@ -71,5 +71,5 @@ unless you ask for it.
 ## Status
 
 - [x] Phase 1 scoped — design spec: `docs/superpowers/specs/2026-08-17-smartlife-phase1-foundation-design.md`
-- [ ] Phase 1 built
+- [x] Phase 1 built — plan: `docs/superpowers/plans/2026-08-17-smartlife-phase1-foundation.md`. All 7 tasks + final whole-branch review + 1 fix round + closing re-review complete. `npm run dev` launches a real window; `npm run package` produces `SmartLife.app`.
 - [ ] Phases 2-9: not started, each gets its own brainstorm when we get there
