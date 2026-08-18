@@ -20,6 +20,10 @@ function mockSmartlife(getValue: 'light' | 'dark' | 'system' = 'dark') {
     },
     app: { getVersion: vi.fn().mockResolvedValue('0.1.0') },
     navigation: { onNavigate: vi.fn(() => () => {}) },
+    ai: {
+      getApiKeyStatus: vi.fn().mockResolvedValue(false),
+      setApiKey: vi.fn().mockResolvedValue(undefined),
+    },
   };
   return listeners;
 }

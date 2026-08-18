@@ -20,6 +20,10 @@ const smartlife = {
       return () => ipcRenderer.removeListener('navigate', listener);
     },
   },
+  ai: {
+    getApiKeyStatus: (): Promise<boolean> => ipcRenderer.invoke('ai:get-api-key-status'),
+    setApiKey: (apiKey: string): Promise<void> => ipcRenderer.invoke('ai:set-api-key', apiKey),
+  },
 };
 
 contextBridge.exposeInMainWorld('smartlife', smartlife);

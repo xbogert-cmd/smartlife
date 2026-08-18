@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import type Database from 'better-sqlite3';
 import { openDb } from './db';
 import { registerIpcHandlers } from './ipc';
+import { registerAiIpcHandlers } from './ai/ipc';
 import { buildMenu } from './menu';
 import { buildCsp } from './csp';
 import { logError, getLogPath } from './log';
@@ -68,6 +69,7 @@ if (!gotLock) {
       try {
         dbConnection = openDb();
         registerIpcHandlers(dbConnection, () => mainWindow);
+        registerAiIpcHandlers(dbConnection, () => mainWindow);
         handlersRegistered = true;
       } catch (error) {
         logError('startup', error);
