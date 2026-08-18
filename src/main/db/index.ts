@@ -11,6 +11,7 @@ export function openDb(): Database.Database {
   mkdirSync(dirname(dbPath), { recursive: true });
   const db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
+  db.pragma('foreign_keys = ON');
   runMigrations(db, [
     { filename: '0001_init.sql', sql: migration0001 },
     { filename: '0002_ai_core.sql', sql: migration0002 },
