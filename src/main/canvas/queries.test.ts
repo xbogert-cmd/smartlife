@@ -9,7 +9,16 @@ vi.mock('electron', () => ({
   },
 }));
 
-import { getUpcomingAssignments, getCourseGrades, getRecentAnnouncements, getSyncStatus } from './queries';
+import {
+  getUpcomingAssignments,
+  getCourseGrades,
+  getRecentAnnouncements,
+  getSyncStatus,
+  getCourseDetail,
+  searchMaterials,
+  getPageBody,
+} from './queries';
+import { courseContentKey } from './sync';
 
 const SCHEMA = `
 create table settings (key text primary key, value text not null);
@@ -30,6 +39,28 @@ create table canvas_announcements (
   course_id integer not null references canvas_courses(id) on delete cascade,
   title text, message text, posted_at text, html_url text,
   synced_at text not null default (datetime('now'))
+);
+create table canvas_modules (
+  id integer primary key,
+  course_id integer not null references canvas_courses(id) on delete cascade,
+  name text, position integer, synced_at text not null default (datetime('now'))
+);
+create table canvas_module_items (
+  id integer primary key,
+  module_id integer not null references canvas_modules(id) on delete cascade,
+  course_id integer not null, title text, type text, content_id integer,
+  page_url text, html_url text, external_url text, position integer
+);
+create table canvas_files (
+  id integer primary key,
+  course_id integer not null references canvas_courses(id) on delete cascade,
+  display_name text, filename text, content_type text, size integer,
+  updated_at text, synced_at text not null default (datetime('now'))
+);
+create table canvas_pages (
+  course_id integer not null references canvas_courses(id) on delete cascade,
+  url text not null, title text, body text, updated_at text,
+  synced_at text not null default (datetime('now')), primary key (course_id, url)
 );
 create table canvas_sync_state (key text primary key, value text not null);
 `;
@@ -169,5 +200,135 @@ describe('getSyncStatus', () => {
     db.prepare('insert into settings (key, value) values (?, ?)').run('canvas_token_saved_at', '2026-08-17T00:00:00Z');
 
     expect(getSyncStatus(db, NOW).tokenExpiringSoon).toBe(false);
+  });
+});
+
+function seedCourseContent(db: Database.Database): void {
+  addAssignment(db, { id: 1, course_id: 101, name: 'Problem Set 1', due_at: '2026-08-20T00:00:00Z' });
+  db.prepare('insert into canvas_announcements (id, course_id, title, posted_at) values (?,?,?,?)').run(
+    1, 101, 'Welcome', '2026-08-10T00:00:00Z'
+  );
+  db.prepare('insert into canvas_modules (id, course_id, name, position) values (?,?,?,?)').run(10, 101, 'Week 1', 1);
+  db.prepare(
+    `insert into canvas_module_items (id, module_id, course_id, title, type, content_id, page_url, external_url, position)
+     values (?,?,?,?,?,?,?,?,?)`
+  ).run(1000, 10, 101, 'Syllabus', 'Page', null, 'syllabus', null, 1);
+  db.prepare(
+    `insert into canvas_module_items (id, module_id, course_id, title, type, content_id, page_url, external_url, position)
+     values (?,?,?,?,?,?,?,?,?)`
+  ).run(1001, 10, 101, 'Slides', 'File', 7, null, null, 2);
+  db.prepare('insert into canvas_files (id, course_id, display_name, content_type, size) values (?,?,?,?,?)').run(
+    7, 101, 'Lecture 1.pdf', 'application/pdf', 1024
+  );
+  db.prepare('insert into canvas_pages (course_id, url, title, body) values (?,?,?,?)').run(
+    101, 'syllabus', 'Syllabus', '<p>Read this</p>'
+  );
+}
+
+describe('getCourseDetail', () => {
+  it('returns the full shape with assignments, modules, files, and announcements', () => {
+    const db = makeDb();
+    seedCourseContent(db);
+    db.prepare('insert into canvas_sync_state (key, value) values (?, ?)').run(
+      courseContentKey(101),
+      '2026-08-18T00:00:00.000Z'
+    );
+
+    const detail = getCourseDetail(db, 101);
+
+    expect(detail).not.toBeNull();
+    expect(detail!.course).toEqual({
+      id: 101,
+      name: 'Statistics',
+      courseCode: 'STT 215',
+      currentScore: 91.5,
+      currentGrade: 'A-',
+    });
+    expect(detail!.assignments.map((a) => a.name)).toEqual(['Problem Set 1']);
+    expect(detail!.files).toEqual([{ id: 7, displayName: 'Lecture 1.pdf', contentType: 'application/pdf', size: 1024 }]);
+    expect(detail!.announcements.map((a) => a.title)).toEqual(['Welcome']);
+    expect(detail!.contentSyncedAt).toBe('2026-08-18T00:00:00.000Z');
+  });
+
+  it('returns null for an unknown course id', () => {
+    const db = makeDb();
+    expect(getCourseDetail(db, 999)).toBeNull();
+  });
+
+  it('nests module items under their module', () => {
+    const db = makeDb();
+    seedCourseContent(db);
+
+    const detail = getCourseDetail(db, 101);
+
+    expect(detail!.modules).toEqual([
+      {
+        id: 10,
+        name: 'Week 1',
+        items: [
+          { id: 1000, title: 'Syllabus', type: 'Page', contentId: null, pageUrl: 'syllabus', externalUrl: null },
+          { id: 1001, title: 'Slides', type: 'File', contentId: 7, pageUrl: null, externalUrl: null },
+        ],
+      },
+    ]);
+  });
+});
+
+describe('searchMaterials', () => {
+  it('finds a file by partial display name', () => {
+    const db = makeDb();
+    seedCourseContent(db);
+
+    const hits = searchMaterials(db, 'Lecture');
+
+    expect(hits).toEqual([
+      { kind: 'file', courseId: 101, courseName: 'Statistics', title: 'Lecture 1.pdf', fileId: 7, pageUrl: null },
+    ]);
+  });
+
+  it('finds a page by partial title', () => {
+    const db = makeDb();
+    seedCourseContent(db);
+
+    const hits = searchMaterials(db, 'syllab');
+
+    expect(hits).toEqual([
+      { kind: 'page', courseId: 101, courseName: 'Statistics', title: 'Syllabus', fileId: null, pageUrl: 'syllabus' },
+    ]);
+  });
+
+  it('returns an empty array when nothing matches', () => {
+    const db = makeDb();
+    seedCourseContent(db);
+
+    expect(searchMaterials(db, 'nonexistent-material')).toEqual([]);
+  });
+
+  it('escapes literal % and _ characters instead of treating them as wildcards', () => {
+    const db = makeDb();
+    // If % or _ in the query leaked through as SQL LIKE wildcards, this query
+    // would spuriously match "50Xoff.pdf" too (% matches "", _ matches "X").
+    db.prepare('insert into canvas_files (id, course_id, display_name) values (?,?,?)').run(7, 101, '50%_off.pdf');
+    db.prepare('insert into canvas_files (id, course_id, display_name) values (?,?,?)').run(8, 101, '50Xoff.pdf');
+
+    const hits = searchMaterials(db, '50%_off');
+
+    expect(hits.map((h) => h.title)).toEqual(['50%_off.pdf']);
+  });
+});
+
+describe('getPageBody', () => {
+  it('returns the cached title and body for a known course/url pair', () => {
+    const db = makeDb();
+    seedCourseContent(db);
+
+    expect(getPageBody(db, 101, 'syllabus')).toEqual({ title: 'Syllabus', body: '<p>Read this</p>' });
+  });
+
+  it('returns null for an unknown course/url pair', () => {
+    const db = makeDb();
+    seedCourseContent(db);
+
+    expect(getPageBody(db, 101, 'missing')).toBeNull();
   });
 });

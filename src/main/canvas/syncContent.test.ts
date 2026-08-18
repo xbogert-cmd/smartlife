@@ -188,6 +188,19 @@ describe('syncCourseContent', () => {
     expect(result.tokenInvalid).toBe(true);
     expect(getSyncState(db, 'token_invalid')).toBe('1');
   });
+
+  it('clears a previously set token-invalid flag after a successful content sync', async () => {
+    const db = makeDb();
+    vi.mocked(api.listModules).mockRejectedValue(new CanvasAuthError());
+    await syncCourseContent(db, CREDS, 101);
+    expect(getSyncState(db, 'token_invalid')).toBe('1');
+
+    vi.mocked(api.listModules).mockResolvedValue([]);
+    const result = await syncCourseContent(db, CREDS, 101);
+
+    expect(result.ok).toBe(true);
+    expect(getSyncState(db, 'token_invalid')).toBeNull();
+  });
 });
 
 describe('fetchPageBody', () => {

@@ -397,6 +397,7 @@ export async function syncCourseContent(
     errors.push(`Files: ${error instanceof Error ? error.message : String(error)}`);
   }
 
+  clearSyncState(db, SYNC_KEY_TOKEN_INVALID);
   setSyncState(db, courseContentKey(courseId), syncedAt);
   return { ok: true, tokenInvalid: false, errors };
 }
