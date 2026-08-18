@@ -5,6 +5,7 @@ import { Sidebar } from './nav/Sidebar';
 import { NAV_SECTIONS } from './nav/sections';
 import { Home } from './routes/Home';
 import { Settings } from './routes/Settings';
+import { AI } from './routes/AI';
 import { ComingSoon } from './routes/ComingSoon';
 
 function NavigationBridge() {
@@ -22,7 +23,8 @@ function Shell() {
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/settings" element={<Settings />} />
-          {NAV_SECTIONS.filter((section) => section.path !== '/' && section.path !== '/settings').map((section) => (
+          <Route path="/ai" element={<AI />} />
+          {NAV_SECTIONS.filter((section) => section.path !== '/' && section.path !== '/settings' && section.path !== '/ai').map((section) => (
             <Route key={section.slug} path={section.path} element={<ComingSoon label={section.label} />} />
           ))}
           <Route path="*" element={<Home />} />
