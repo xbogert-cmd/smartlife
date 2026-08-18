@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { App } from './App';
 
@@ -55,5 +55,29 @@ describe('App', () => {
     await userEvent.click(screen.getByRole('button', { name: 'dark' }));
 
     expect(window.smartlife.theme.set).toHaveBeenCalledWith('dark');
+  });
+
+  it('opens the AI overlay with Cmd+J and closes it with Escape', async () => {
+    render(<App />);
+    await screen.findByText(/good (morning|afternoon|evening)/i);
+
+    await userEvent.keyboard('{Meta>}j{/Meta}');
+    expect(await screen.findByRole('dialog', { name: 'Ask AI' })).toBeInTheDocument();
+
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Ask AI' })).not.toBeInTheDocument());
+  });
+
+  it('opens the command palette with Cmd+K and jumps to a section', async () => {
+    render(<App />);
+    await screen.findByText(/good (morning|afternoon|evening)/i);
+
+    await userEvent.keyboard('{Meta>}k{/Meta}');
+    const input = await screen.findByPlaceholderText('Type a command…');
+    await userEvent.type(input, 'Tasks');
+    await userEvent.click(screen.getByRole('button', { name: 'Go to Tasks' }));
+
+    expect(await screen.findByText('Coming in a later phase.')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'Command palette' })).not.toBeInTheDocument();
   });
 });

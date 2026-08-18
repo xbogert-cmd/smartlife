@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { MemoryRouter, Routes, Route, useNavigate } from 'react-router-dom';
 import { ThemeProvider } from './theme/ThemeProvider';
 import { Sidebar } from './nav/Sidebar';
@@ -7,6 +7,8 @@ import { Home } from './routes/Home';
 import { Settings } from './routes/Settings';
 import { AI } from './routes/AI';
 import { ComingSoon } from './routes/ComingSoon';
+import { AIOverlay } from './ai/AIOverlay';
+import { CommandPalette } from './command-palette/CommandPalette';
 
 function NavigationBridge() {
   const navigate = useNavigate();
@@ -15,6 +17,26 @@ function NavigationBridge() {
 }
 
 function Shell() {
+  const [overlayOpen, setOverlayOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent): void {
+      if (event.metaKey && event.key.toLowerCase() === 'j') {
+        event.preventDefault();
+        setOverlayOpen((open) => !open);
+      } else if (event.metaKey && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setPaletteOpen((open) => !open);
+      } else if (event.key === 'Escape') {
+        setOverlayOpen(false);
+        setPaletteOpen(false);
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   return (
     <div className="flex h-screen">
       <Sidebar />
@@ -30,6 +52,16 @@ function Shell() {
           <Route path="*" element={<Home />} />
         </Routes>
       </main>
+      {overlayOpen && <AIOverlay onClose={() => setOverlayOpen(false)} />}
+      {paletteOpen && (
+        <CommandPalette
+          onClose={() => setPaletteOpen(false)}
+          onOpenAI={() => {
+            setPaletteOpen(false);
+            setOverlayOpen(true);
+          }}
+        />
+      )}
     </div>
   );
 }
