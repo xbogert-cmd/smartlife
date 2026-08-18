@@ -25,6 +25,11 @@ function mockSmartlife(getValue: 'light' | 'dark' | 'system' = 'dark') {
       setApiKey: vi.fn().mockResolvedValue(undefined),
       getMode: vi.fn().mockResolvedValue('ask'),
       setMode: vi.fn().mockResolvedValue(undefined),
+      sendMessage: vi.fn().mockResolvedValue(undefined),
+      onStreamEvent: vi.fn(() => () => {}),
+      onConfirmRequest: vi.fn(() => () => {}),
+      respondToConfirm: vi.fn().mockResolvedValue(undefined),
+      getHistory: vi.fn().mockResolvedValue([]),
     },
   };
   return listeners;

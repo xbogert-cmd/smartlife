@@ -3,15 +3,27 @@ import type Database from 'better-sqlite3';
 import { setStoredApiKey, hasStoredApiKey } from './apiKey';
 import { getAiMode, setAiMode } from './mode';
 import type { AiMode } from './permissions';
+import { getOrCreateConversationId, getMessages } from './conversation';
+import { resolveConfirmation } from './confirmations';
+import { handleSendMessage } from './chatController';
 
 export function registerAiIpcHandlers(db: Database.Database, getWindow: () => BrowserWindow | null): void {
   ipcMain.handle('ai:get-api-key-status', () => hasStoredApiKey(db));
   ipcMain.handle('ai:set-api-key', (_event, apiKey: string) => {
     setStoredApiKey(db, apiKey);
   });
+
   ipcMain.handle('ai:get-mode', () => getAiMode(db));
   ipcMain.handle('ai:set-mode', (_event, mode: AiMode) => {
     setAiMode(db, mode);
   });
-  void getWindow; // unused until Task 5 wires ai:send-message, which needs it — keeps the parameter's purpose visible now
+
+  ipcMain.handle('ai:send-message', (_event, text: string) => handleSendMessage(db, getWindow, text));
+  ipcMain.handle('ai:confirm-response', (_event, id: string, approved: boolean) => {
+    resolveConfirmation(id, approved);
+  });
+  ipcMain.handle('ai:get-history', () => {
+    const conversationId = getOrCreateConversationId(db);
+    return getMessages(db, conversationId).map((m) => ({ role: m.role, content: JSON.parse(m.content) }));
+  });
 }
