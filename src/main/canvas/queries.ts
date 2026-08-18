@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 import { getCanvasBaseUrl, getTokenAgeDays, hasCanvasToken, TOKEN_WARN_AFTER_DAYS } from './token';
-import { getSyncState, SYNC_KEY_LAST_CORE, SYNC_KEY_TOKEN_INVALID } from './sync';
+import { courseContentKey, getSyncState, SYNC_KEY_LAST_CORE, SYNC_KEY_TOKEN_INVALID } from './sync';
 
 export interface UpcomingAssignment {
   id: number;
@@ -140,4 +140,224 @@ export function getSyncStatus(db: Database.Database, now: Date = new Date()): Ca
     tokenAgeDays,
     tokenExpiringSoon: tokenAgeDays !== null && tokenAgeDays >= TOKEN_WARN_AFTER_DAYS,
   };
+}
+
+export interface CourseAssignment {
+  id: number;
+  name: string;
+  dueAt: string | null;
+  pointsPossible: number | null;
+  hasSubmitted: boolean;
+  score: number | null;
+  grade: string | null;
+  htmlUrl: string | null;
+}
+
+export interface ModuleItemRow {
+  id: number;
+  title: string | null;
+  type: string | null;
+  contentId: number | null;
+  pageUrl: string | null;
+  externalUrl: string | null;
+}
+
+export interface ModuleWithItems {
+  id: number;
+  name: string | null;
+  items: ModuleItemRow[];
+}
+
+export interface FileRow {
+  id: number;
+  displayName: string | null;
+  contentType: string | null;
+  size: number | null;
+}
+
+export interface CourseDetail {
+  course: CourseGrade;
+  assignments: CourseAssignment[];
+  modules: ModuleWithItems[];
+  files: FileRow[];
+  announcements: AnnouncementRow[];
+  contentSyncedAt: string | null;
+}
+
+export interface MaterialHit {
+  kind: 'file' | 'page';
+  courseId: number;
+  courseName: string;
+  title: string;
+  fileId: number | null;
+  pageUrl: string | null;
+}
+
+export function getCourseDetail(db: Database.Database, courseId: number): CourseDetail | null {
+  const course = db
+    .prepare('select id, name, course_code, current_score, current_grade from canvas_courses where id = ?')
+    .get(courseId) as
+    | { id: number; name: string; course_code: string | null; current_score: number | null; current_grade: string | null }
+    | undefined;
+  if (!course) return null;
+
+  const assignments = (
+    db
+      .prepare(
+        `select id, name, due_at, points_possible, has_submitted, score, grade, html_url
+         from canvas_assignments where course_id = ?
+         order by case when due_at is null then 1 else 0 end, due_at, id`
+      )
+      .all(courseId) as Array<{
+      id: number;
+      name: string;
+      due_at: string | null;
+      points_possible: number | null;
+      has_submitted: number;
+      score: number | null;
+      grade: string | null;
+      html_url: string | null;
+    }>
+  ).map((row) => ({
+    id: row.id,
+    name: row.name,
+    dueAt: row.due_at,
+    pointsPossible: row.points_possible,
+    hasSubmitted: row.has_submitted === 1,
+    score: row.score,
+    grade: row.grade,
+    htmlUrl: row.html_url,
+  }));
+
+  const moduleRows = db
+    .prepare('select id, name from canvas_modules where course_id = ? order by position, id')
+    .all(courseId) as { id: number; name: string | null }[];
+
+  const itemStmt = db.prepare(
+    `select id, title, type, content_id, page_url, external_url
+     from canvas_module_items where module_id = ? order by position, id`
+  );
+
+  const modules: ModuleWithItems[] = moduleRows.map((module) => ({
+    id: module.id,
+    name: module.name,
+    items: (
+      itemStmt.all(module.id) as Array<{
+        id: number;
+        title: string | null;
+        type: string | null;
+        content_id: number | null;
+        page_url: string | null;
+        external_url: string | null;
+      }>
+    ).map((item) => ({
+      id: item.id,
+      title: item.title,
+      type: item.type,
+      contentId: item.content_id,
+      pageUrl: item.page_url,
+      externalUrl: item.external_url,
+    })),
+  }));
+
+  const files = (
+    db
+      .prepare('select id, display_name, content_type, size from canvas_files where course_id = ? order by display_name, id')
+      .all(courseId) as Array<{ id: number; display_name: string | null; content_type: string | null; size: number | null }>
+  ).map((row) => ({ id: row.id, displayName: row.display_name, contentType: row.content_type, size: row.size }));
+
+  const announcements = (
+    db
+      .prepare(
+        `select n.id, n.course_id, c.name as course_name, n.title, n.message, n.posted_at
+         from canvas_announcements n join canvas_courses c on c.id = n.course_id
+         where n.course_id = ? order by n.posted_at desc, n.id desc`
+      )
+      .all(courseId) as Array<{
+      id: number;
+      course_id: number;
+      course_name: string;
+      title: string | null;
+      message: string | null;
+      posted_at: string | null;
+    }>
+  ).map((row) => ({
+    id: row.id,
+    courseId: row.course_id,
+    courseName: row.course_name,
+    title: row.title,
+    message: row.message,
+    postedAt: row.posted_at,
+  }));
+
+  return {
+    course: {
+      id: course.id,
+      name: course.name,
+      courseCode: course.course_code,
+      currentScore: course.current_score,
+      currentGrade: course.current_grade,
+    },
+    assignments,
+    modules,
+    files,
+    announcements,
+    contentSyncedAt: getSyncState(db, courseContentKey(courseId)),
+  };
+}
+
+export function searchMaterials(db: Database.Database, query: string, limit = 25): MaterialHit[] {
+  const trimmed = query.trim();
+  if (trimmed.length === 0) return [];
+  const like = `%${trimmed.replace(/[%_]/g, (c) => `\\${c}`)}%`;
+
+  const files = db
+    .prepare(
+      `select f.id, f.display_name, f.course_id, c.name as course_name
+       from canvas_files f join canvas_courses c on c.id = f.course_id
+       where f.display_name like ? escape '\\'
+       order by f.display_name, f.id limit ?`
+    )
+    .all(like, limit) as Array<{ id: number; display_name: string | null; course_id: number; course_name: string }>;
+
+  const pages = db
+    .prepare(
+      `select p.url, p.title, p.course_id, c.name as course_name
+       from canvas_pages p join canvas_courses c on c.id = p.course_id
+       where p.title like ? escape '\\'
+       order by p.title, p.url limit ?`
+    )
+    .all(like, limit) as Array<{ url: string; title: string | null; course_id: number; course_name: string }>;
+
+  const hits: MaterialHit[] = [
+    ...files.map((f) => ({
+      kind: 'file' as const,
+      courseId: f.course_id,
+      courseName: f.course_name,
+      title: f.display_name ?? 'Untitled file',
+      fileId: f.id,
+      pageUrl: null,
+    })),
+    ...pages.map((p) => ({
+      kind: 'page' as const,
+      courseId: p.course_id,
+      courseName: p.course_name,
+      title: p.title ?? p.url,
+      fileId: null,
+      pageUrl: p.url,
+    })),
+  ];
+
+  return hits.slice(0, limit);
+}
+
+export function getPageBody(
+  db: Database.Database,
+  courseId: number,
+  pageUrl: string
+): { title: string | null; body: string | null } | null {
+  const row = db
+    .prepare('select title, body from canvas_pages where course_id = ? and url = ?')
+    .get(courseId, pageUrl) as { title: string | null; body: string | null } | undefined;
+  return row ?? null;
 }
