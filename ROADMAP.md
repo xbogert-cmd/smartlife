@@ -72,4 +72,6 @@ unless you ask for it.
 
 - [x] Phase 1 scoped — design spec: `docs/superpowers/specs/2026-08-17-smartlife-phase1-foundation-design.md`
 - [x] Phase 1 built — plan: `docs/superpowers/plans/2026-08-17-smartlife-phase1-foundation.md`. All 7 tasks + final whole-branch review + 1 fix round + closing re-review complete. `npm run dev` launches a real window; `npm run package` produces `SmartLife.app`.
-- [ ] Phases 2-9: not started, each gets its own brainstorm when we get there
+- [x] Phase 2 scoped — design spec: `docs/superpowers/specs/2026-08-17-smartlife-phase2-ai-core-design.md`
+- [x] Phase 2 built — plan: `docs/superpowers/plans/2026-08-17-smartlife-phase2-ai-core.md`. All 8 tasks + final whole-branch review + 1 fix round + closing re-review complete. Claude-backed chat (Tool Runner, streaming), 3-tier permission system, 3 starter tools, Settings API key + mode UI, AI nav section, Cmd+J overlay, Cmd+K palette. 68/68 tests, `npm run package` produces `SmartLife.app`. Known open items: theme tool doesn't live-repaint until restart (cosmetic); AI empty-state (no-key UX) shipped as an inline message rather than the spec'd dedicated empty state — pending a user decision on whether to fix.
+- [ ] Phases 3-9: not started, each gets its own brainstorm when we get there
