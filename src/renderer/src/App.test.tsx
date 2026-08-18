@@ -24,6 +24,8 @@ beforeEach(() => {
     ai: {
       getApiKeyStatus: vi.fn().mockResolvedValue(false),
       setApiKey: vi.fn().mockResolvedValue(undefined),
+      getMode: vi.fn().mockResolvedValue('ask'),
+      setMode: vi.fn().mockResolvedValue(undefined),
     },
   };
 });

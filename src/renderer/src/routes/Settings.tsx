@@ -9,6 +9,7 @@ export function Settings() {
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [apiKeyConfigured, setApiKeyConfigured] = useState<boolean | null>(null);
   const [apiKeyError, setApiKeyError] = useState('');
+  const [aiMode, setAiModeState] = useState<'ask' | 'assist' | 'auto' | null>(null);
 
   useEffect(() => {
     window.smartlife.app.getVersion().then(setVersion).catch(() => {});
@@ -17,6 +18,15 @@ export function Settings() {
   useEffect(() => {
     window.smartlife.ai.getApiKeyStatus().then(setApiKeyConfigured);
   }, []);
+
+  useEffect(() => {
+    window.smartlife.ai.getMode().then(setAiModeState);
+  }, []);
+
+  async function handleSetAiMode(mode: 'ask' | 'assist' | 'auto'): Promise<void> {
+    setAiModeState(mode);
+    await window.smartlife.ai.setMode(mode);
+  }
 
   async function handleSaveApiKey(): Promise<void> {
     setApiKeyError('');
@@ -86,6 +96,26 @@ export function Settings() {
           </button>
         </div>
         {apiKeyError && <span style={{ color: '#F87171' }}>{apiKeyError}</span>}
+      </div>
+      <div className="flex flex-col gap-2">
+        <span style={{ color: 'var(--color-text-muted)' }}>AI permission mode</span>
+        <div className="flex gap-2">
+          {(['ask', 'assist', 'auto'] as const).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => handleSetAiMode(mode)}
+              className="rounded-md px-3 py-1.5 text-sm capitalize"
+              style={{
+                backgroundColor: aiMode === mode ? 'var(--color-text)' : 'var(--color-surface)',
+                color: aiMode === mode ? 'var(--color-bg)' : 'var(--color-text)',
+                border: '1px solid var(--color-border)',
+              }}
+            >
+              {mode}
+            </button>
+          ))}
+        </div>
       </div>
       <p style={{ color: 'var(--color-text-muted)' }}>SmartLife v{version}</p>
     </div>
