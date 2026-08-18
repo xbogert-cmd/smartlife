@@ -10,6 +10,21 @@ describe('buildCsp', () => {
 
   it('is strict in production — no eval, no inline scripts', () => {
     const csp = buildCsp(false);
-    expect(csp).toBe("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'");
+    expect(csp).toContain("script-src 'self'");
+    expect(csp).not.toContain('unsafe-eval');
+    expect(csp).not.toContain("script-src 'self' 'unsafe-inline'");
+  });
+
+  it('allows Canvas-hosted images in production', () => {
+    expect(buildCsp(false)).toContain("img-src 'self' data: https://*.instructure.com");
+  });
+
+  it('allows Canvas-hosted images in development', () => {
+    expect(buildCsp(true)).toContain("img-src 'self' data: https://*.instructure.com");
+  });
+
+  it('never relaxes script-src in production', () => {
+    expect(buildCsp(false)).toContain("script-src 'self'");
+    expect(buildCsp(false)).not.toContain("script-src 'self' 'unsafe-inline'");
   });
 });

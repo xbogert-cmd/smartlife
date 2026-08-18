@@ -4,6 +4,8 @@ import type Database from 'better-sqlite3';
 import { openDb } from './db';
 import { registerIpcHandlers } from './ipc';
 import { registerAiIpcHandlers } from './ai/ipc';
+import { registerCanvasIpcHandlers } from './canvas/ipc';
+import { startCanvasScheduler, type CanvasScheduler } from './canvas/scheduler';
 import { buildMenu } from './menu';
 import { buildCsp } from './csp';
 import { logError, getLogPath } from './log';
@@ -23,6 +25,7 @@ if (!gotLock) {
   let mainWindow: BrowserWindow | null = null;
   let dbConnection: Database.Database | null = null;
   let handlersRegistered = false;
+  let canvasScheduler: CanvasScheduler | null = null;
 
   app.on('second-instance', () => {
     if (mainWindow) {
@@ -70,6 +73,8 @@ if (!gotLock) {
         dbConnection = openDb();
         registerIpcHandlers(dbConnection, () => mainWindow);
         registerAiIpcHandlers(dbConnection, () => mainWindow);
+        canvasScheduler = startCanvasScheduler(dbConnection, () => mainWindow);
+        registerCanvasIpcHandlers(dbConnection, () => mainWindow, canvasScheduler);
         handlersRegistered = true;
       } catch (error) {
         logError('startup', error);
@@ -110,6 +115,7 @@ if (!gotLock) {
   });
 
   app.on('before-quit', () => {
+    canvasScheduler?.stop();
     dbConnection?.close();
   });
 }

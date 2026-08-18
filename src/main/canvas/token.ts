@@ -1,5 +1,6 @@
 import { safeStorage } from 'electron';
 import type Database from 'better-sqlite3';
+import type { CanvasCredentials } from './client';
 
 const TOKEN_KEY = 'canvas_token_encrypted';
 const BASE_URL_KEY = 'canvas_base_url';
@@ -78,4 +79,12 @@ export function getTokenAgeDays(db: Database.Database, now: Date = new Date()): 
   const saved = Date.parse(savedAt);
   if (Number.isNaN(saved)) return null;
   return Math.floor((now.getTime() - saved) / MS_PER_DAY);
+}
+
+/** Returns null unless BOTH a base URL and a decryptable token are present. */
+export function getCanvasCredentials(db: Database.Database): CanvasCredentials | null {
+  const baseUrl = getCanvasBaseUrl(db);
+  const token = getCanvasToken(db);
+  if (baseUrl === null || token === null) return null;
+  return { baseUrl, token };
 }

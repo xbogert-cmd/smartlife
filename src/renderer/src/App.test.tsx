@@ -32,6 +32,30 @@ beforeEach(() => {
       respondToConfirm: vi.fn().mockResolvedValue(undefined),
       getHistory: vi.fn().mockResolvedValue([]),
     },
+    canvas: {
+      getStatus: vi.fn().mockResolvedValue({
+        tokenConfigured: false,
+        baseUrlConfigured: false,
+        lastSyncedAt: null,
+        tokenInvalid: false,
+        tokenAgeDays: null,
+        tokenExpiringSoon: false,
+      }),
+      setBaseUrl: vi.fn(),
+      setToken: vi.fn(),
+      clearToken: vi.fn(),
+      testConnection: vi.fn(),
+      syncNow: vi.fn(),
+      getUpcoming: vi.fn().mockResolvedValue([]),
+      getGrades: vi.fn().mockResolvedValue([]),
+      getAnnouncements: vi.fn().mockResolvedValue([]),
+      getCourse: vi.fn().mockResolvedValue(null),
+      syncCourse: vi.fn(),
+      getPage: vi.fn().mockResolvedValue(null),
+      openFile: vi.fn(),
+      searchMaterials: vi.fn().mockResolvedValue([]),
+      onSyncChanged: vi.fn().mockReturnValue(() => {}),
+    },
   };
 });
 
