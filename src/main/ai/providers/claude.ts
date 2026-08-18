@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { betaTool } from '@anthropic-ai/sdk/helpers/beta/json-schema.mjs';
+import { betaTool } from '@anthropic-ai/sdk/helpers/beta/json-schema';
 import type { ToolContext, ToolDefinition } from '../tools/types';
 import type { AIProvider, StreamEvent } from './types';
 

@@ -37,7 +37,7 @@ export function appendMessage(
 
 export function getMessages(db: Database.Database, conversationId: string): StoredMessage[] {
   const rows = db
-    .prepare('select id, conversation_id, role, content, created_at from ai_messages where conversation_id = ? order by created_at')
+    .prepare('select id, conversation_id, role, content, created_at from ai_messages where conversation_id = ? order by created_at, rowid')
     .all(conversationId) as Array<{ id: string; conversation_id: string; role: string; content: string; created_at: string }>;
   return rows.map((row) => ({
     id: row.id,

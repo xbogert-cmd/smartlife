@@ -54,6 +54,24 @@ describe('conversation helpers', () => {
     expect(messages[1].role).toBe('assistant');
   });
 
+  it('breaks created_at ties by insertion order (rowid)', async () => {
+    const { getOrCreateConversationId, getMessages } = await import('./conversation');
+    const db = makeDb();
+    const conversationId = getOrCreateConversationId(db);
+    // Insert two rows with identical created_at to force a tie, deterministically
+    // rather than relying on real-clock timing.
+    db.prepare(
+      'insert into ai_messages (id, conversation_id, role, content, created_at) values (?, ?, ?, ?, ?)'
+    ).run('msg-user', conversationId, 'user', JSON.stringify([{ type: 'text', text: 'hello' }]), '2026-01-01 00:00:00');
+    db.prepare(
+      'insert into ai_messages (id, conversation_id, role, content, created_at) values (?, ?, ?, ?, ?)'
+    ).run('msg-assistant', conversationId, 'assistant', JSON.stringify([{ type: 'text', text: 'hi there' }]), '2026-01-01 00:00:00');
+    const messages = getMessages(db, conversationId);
+    expect(messages).toHaveLength(2);
+    expect(messages[0].id).toBe('msg-user');
+    expect(messages[1].id).toBe('msg-assistant');
+  });
+
   it('clears all messages for a conversation', async () => {
     const { getOrCreateConversationId, appendMessage, getMessages, clearMessages } = await import('./conversation');
     const db = makeDb();

@@ -35,8 +35,13 @@ export async function handleSendMessage(
     db,
     conversationId,
     mode,
-    requestConfirmation: (toolName, description) =>
-      requestToolConfirmation((payload) => getWindow()?.webContents.send('ai:confirm-request', payload), toolName, description),
+    requestConfirmation: (toolName, description) => {
+      // If there's no window to show a confirmation UI in, there's no way for the
+      // user to ever approve — resolve as declined instead of parking the promise
+      // forever in confirmations.ts's pending map.
+      if (!getWindow()) return Promise.resolve(false);
+      return requestToolConfirmation((payload) => getWindow()?.webContents.send('ai:confirm-request', payload), toolName, description);
+    },
   };
 
   try {

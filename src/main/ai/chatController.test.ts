@@ -72,4 +72,19 @@ describe('handleSendMessage', () => {
     expect(count.count).toBe(0);
     expect(window.sent.some((s) => JSON.stringify(s.payload).includes('went wrong'))).toBe(true);
   });
+
+  it('resolves requestConfirmation to false instead of hanging when there is no window', async () => {
+    const { handleSendMessage } = await import('./chatController');
+    const db = makeDb();
+    setStoredApiKey(db, 'sk-ant-test');
+    let confirmResult: boolean | undefined;
+    const provider: AIProvider = {
+      streamTurn: vi.fn().mockImplementation(async ({ ctx }) => {
+        confirmResult = await ctx.requestConfirmation('some_tool', 'some description');
+        return [{ type: 'text', text: 'done' }];
+      }),
+    };
+    await handleSendMessage(db, () => null, 'hello', provider);
+    expect(confirmResult).toBe(false);
+  });
 });
