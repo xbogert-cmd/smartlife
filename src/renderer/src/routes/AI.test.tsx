@@ -1,15 +1,25 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 import { AI } from './AI';
+
+function renderAI(): ReturnType<typeof render> {
+  return render(
+    <MemoryRouter>
+      <AI />
+    </MemoryRouter>
+  );
+}
 
 type StreamCb = (event: { type: string; text?: string; toolLabel?: string }) => void;
 type ConfirmCb = (req: { id: string; toolName: string; description: string }) => void;
 
-function mockAi() {
+function mockAi(apiKeyConfigured = true) {
   let streamCb: StreamCb | null = null;
   let confirmCb: ConfirmCb | null = null;
   return {
+    getApiKeyStatus: vi.fn().mockResolvedValue(apiKeyConfigured),
     getHistory: vi.fn().mockResolvedValue([]),
     sendMessage: vi.fn().mockImplementation(() => {
       queueMicrotask(() => {
@@ -42,7 +52,7 @@ beforeEach(() => {
 
 describe('AI chat view', () => {
   it('sends a message and renders the streamed assistant reply', async () => {
-    render(<AI />);
+    renderAI();
     const input = await screen.findByPlaceholderText('Ask SmartLife…');
     await userEvent.type(input, 'hi there');
     await userEvent.click(screen.getByRole('button', { name: 'Send' }));
@@ -54,12 +64,22 @@ describe('AI chat view', () => {
   });
 
   it('shows a confirmation card and calls respondToConfirm on approve', async () => {
-    render(<AI />);
+    renderAI();
     const ai = (window as unknown as { smartlife: { ai: ReturnType<typeof mockAi> } }).smartlife.ai;
     ai.triggerConfirm({ id: 'conf-1', toolName: 'set_theme', description: 'Change theme to "dark"' });
 
     expect(await screen.findByText('Change theme to "dark"')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Approve' }));
     expect(ai.respondToConfirm).toHaveBeenCalledWith('conf-1', true);
+  });
+
+  it('shows a Connect Claude empty state instead of the chat UI when no API key is configured', async () => {
+    (window as unknown as { smartlife: { ai: ReturnType<typeof mockAi> } }).smartlife = { ai: mockAi(false) };
+    renderAI();
+
+    expect(await screen.findByText('Connect Claude in Settings to start chatting.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Go to Settings' })).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText('Ask SmartLife…')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Send' })).not.toBeInTheDocument();
   });
 });

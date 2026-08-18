@@ -27,7 +27,15 @@ export function useConversation() {
   const [statusLabel, setStatusLabel] = useState<string | null>(null);
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
   const [sending, setSending] = useState(false);
+  const [apiKeyConfigured, setApiKeyConfigured] = useState<boolean | null>(null);
   const streamingIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    window.smartlife.ai
+      .getApiKeyStatus()
+      .then(setApiKeyConfigured)
+      .catch(() => setApiKeyConfigured(false));
+  }, []);
 
   useEffect(() => {
     window.smartlife.ai
@@ -92,5 +100,5 @@ export function useConversation() {
     [pendingConfirm]
   );
 
-  return { messages, statusLabel, pendingConfirm, sending, sendMessage, respondToConfirm };
+  return { messages, statusLabel, pendingConfirm, sending, apiKeyConfigured, sendMessage, respondToConfirm };
 }

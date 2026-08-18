@@ -19,6 +19,7 @@ export function AI() {
       statusLabel={conversation.statusLabel}
       pendingConfirm={conversation.pendingConfirm}
       sending={conversation.sending}
+      apiKeyConfigured={conversation.apiKeyConfigured}
       input={input}
       onInputChange={setInput}
       onSubmit={handleSubmit}

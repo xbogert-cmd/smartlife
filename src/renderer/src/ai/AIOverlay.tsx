@@ -45,10 +45,12 @@ export function AIOverlay({ onClose }: { onClose: () => void }) {
           statusLabel={conversation.statusLabel}
           pendingConfirm={conversation.pendingConfirm}
           sending={conversation.sending}
+          apiKeyConfigured={conversation.apiKeyConfigured}
           input={input}
           onInputChange={setInput}
           onSubmit={handleSubmit}
           onRespondToConfirm={conversation.respondToConfirm}
+          onNavigateAway={onClose}
         />
       </div>
     </div>
