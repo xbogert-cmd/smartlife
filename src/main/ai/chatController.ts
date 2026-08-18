@@ -9,6 +9,10 @@ import { getProvider } from './router';
 import type { ToolContext } from './tools/types';
 import type { AIProvider, StreamEvent } from './providers/types';
 
+// ponytail: single in-flight flag, only one conversation exists app-wide today.
+// Upgrade to a Set keyed by conversation id if multi-conversation support lands.
+let turnInFlight = false;
+
 export async function handleSendMessage(
   db: Database.Database,
   getWindow: () => BrowserWindow | null,
@@ -17,6 +21,12 @@ export async function handleSendMessage(
 ): Promise<void> {
   const send = (event: StreamEvent): void => getWindow()?.webContents.send('ai:stream-event', event);
 
+  if (turnInFlight) {
+    send({ type: 'text-delta', text: 'Still working on the last message — try again in a moment.' });
+    send({ type: 'turn-complete' });
+    return;
+  }
+
   const apiKey = getStoredApiKey(db);
   if (!apiKey) {
     send({ type: 'text-delta', text: 'No API key configured — add one in Settings.' });
@@ -24,33 +34,38 @@ export async function handleSendMessage(
     return;
   }
 
-  const conversationId = getOrCreateConversationId(db);
-  const mode = getAiMode(db);
-  const history = getMessages(db, conversationId).map((m) => ({
-    role: m.role,
-    content: JSON.parse(m.content) as unknown,
-  }));
-
-  const ctx: ToolContext = {
-    db,
-    conversationId,
-    mode,
-    requestConfirmation: (toolName, description) => {
-      // If there's no window to show a confirmation UI in, there's no way for the
-      // user to ever approve — resolve as declined instead of parking the promise
-      // forever in confirmations.ts's pending map.
-      if (!getWindow()) return Promise.resolve(false);
-      return requestToolConfirmation((payload) => getWindow()?.webContents.send('ai:confirm-request', payload), toolName, description);
-    },
-  };
-
+  turnInFlight = true;
   try {
-    const finalContent = await provider.streamTurn({ apiKey, history, userText, tools: TOOLS, ctx, onEvent: send });
-    appendMessage(db, conversationId, 'user', [{ type: 'text', text: userText }]);
-    appendMessage(db, conversationId, 'assistant', finalContent as unknown[]);
-  } catch (error) {
-    console.error('AI turn failed:', error);
-    send({ type: 'text-delta', text: 'Something went wrong — try again.' });
-    send({ type: 'turn-complete' });
+    const conversationId = getOrCreateConversationId(db);
+    const mode = getAiMode(db);
+    const history = getMessages(db, conversationId).map((m) => ({
+      role: m.role,
+      content: JSON.parse(m.content) as unknown,
+    }));
+
+    const ctx: ToolContext = {
+      db,
+      conversationId,
+      mode,
+      requestConfirmation: (toolName, description) => {
+        // If there's no window to show a confirmation UI in, there's no way for the
+        // user to ever approve — resolve as declined instead of parking the promise
+        // forever in confirmations.ts's pending map.
+        if (!getWindow()) return Promise.resolve(false);
+        return requestToolConfirmation((payload) => getWindow()?.webContents.send('ai:confirm-request', payload), toolName, description);
+      },
+    };
+
+    try {
+      const finalContent = await provider.streamTurn({ apiKey, history, userText, tools: TOOLS, ctx, onEvent: send });
+      appendMessage(db, conversationId, 'user', [{ type: 'text', text: userText }]);
+      appendMessage(db, conversationId, 'assistant', finalContent as unknown[]);
+    } catch (error) {
+      console.error('AI turn failed:', error);
+      send({ type: 'text-delta', text: 'Something went wrong — try again.' });
+      send({ type: 'turn-complete' });
+    }
+  } finally {
+    turnInFlight = false;
   }
 }

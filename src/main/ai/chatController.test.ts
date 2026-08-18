@@ -87,4 +87,43 @@ describe('handleSendMessage', () => {
     await handleSendMessage(db, () => null, 'hello', provider);
     expect(confirmResult).toBe(false);
   });
+
+  it('rejects a second concurrent turn with a "still working" message instead of starting a second stream', async () => {
+    const { handleSendMessage } = await import('./chatController');
+    const db = makeDb();
+    setStoredApiKey(db, 'sk-ant-test');
+    const window = fakeWindow();
+
+    let releaseFirst: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const provider: AIProvider = {
+      streamTurn: vi.fn().mockImplementation(async () => {
+        await gate;
+        return [{ type: 'text', text: 'done' }];
+      }),
+    };
+
+    const firstCall = handleSendMessage(db, () => window as never, 'first', provider);
+    // Let the first call reach and start awaiting streamTurn before firing the second.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const secondCall = handleSendMessage(db, () => window as never, 'second', provider);
+    await secondCall;
+
+    expect(provider.streamTurn).toHaveBeenCalledTimes(1);
+    expect(window.sent.some((s) => JSON.stringify(s.payload).includes('Still working on the last message'))).toBe(true);
+
+    releaseFirst?.();
+    await firstCall;
+
+    const rows = db.prepare('select role, content from ai_messages order by created_at').all() as Array<{
+      role: string;
+      content: string;
+    }>;
+    expect(rows).toHaveLength(2);
+    expect(JSON.parse(rows[0].content)).toEqual([{ type: 'text', text: 'first' }]);
+  });
 });

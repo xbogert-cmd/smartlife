@@ -30,9 +30,12 @@ export function useConversation() {
   const streamingIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    window.smartlife.ai.getHistory().then((history) => {
-      setMessages(history.map((m, index) => ({ id: `history-${index}`, role: m.role, text: extractText(m.content) })));
-    });
+    window.smartlife.ai
+      .getHistory()
+      .then((history) => {
+        setMessages(history.map((m, index) => ({ id: `history-${index}`, role: m.role, text: extractText(m.content) })));
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -71,13 +74,19 @@ export function useConversation() {
     setMessages((prev) => [...prev, { id, role: 'user', text }]);
     setSending(true);
     streamingIdRef.current = null;
-    window.smartlife.ai.sendMessage(text);
+    window.smartlife.ai.sendMessage(text).catch(() => {
+      setSending(false);
+      setMessages((prev) => [
+        ...prev,
+        { id: `assistant-${Date.now()}-${Math.random()}`, role: 'assistant', text: 'Something went wrong — try again.' },
+      ]);
+    });
   }, []);
 
   const respondToConfirm = useCallback(
     async (approved: boolean) => {
       if (!pendingConfirm) return;
-      await window.smartlife.ai.respondToConfirm(pendingConfirm.id, approved);
+      await window.smartlife.ai.respondToConfirm(pendingConfirm.id, approved).catch(() => {});
       setPendingConfirm(null);
     },
     [pendingConfirm]

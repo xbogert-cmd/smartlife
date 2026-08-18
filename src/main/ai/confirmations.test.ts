@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { requestConfirmation, resolveConfirmation } from './confirmations';
 
 describe('confirmation round-trip', () => {
@@ -20,5 +20,35 @@ describe('confirmation round-trip', () => {
 
   it('ignores resolveConfirmation for an unknown id without throwing', () => {
     expect(() => resolveConfirmation('unknown-id', true)).not.toThrow();
+  });
+});
+
+describe('confirmation timeout', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('auto-resolves to false if resolveConfirmation is never called', async () => {
+    const sent: Array<{ id: string; toolName: string; description: string }> = [];
+    const promise = requestConfirmation((payload) => sent.push(payload), 'set_theme', 'Set theme to dark');
+
+    await vi.advanceTimersByTimeAsync(120_000);
+
+    await expect(promise).resolves.toBe(false);
+  });
+
+  it('does not double-resolve or throw when the timeout fires after resolveConfirmation already settled it', async () => {
+    const sent: Array<{ id: string; toolName: string; description: string }> = [];
+    const promise = requestConfirmation((payload) => sent.push(payload), 'set_theme', 'Set theme to dark');
+
+    resolveConfirmation(sent[0].id, true);
+    await expect(promise).resolves.toBe(true);
+
+    expect(() => vi.advanceTimersByTime(120_000)).not.toThrow();
+    await expect(promise).resolves.toBe(true);
   });
 });
