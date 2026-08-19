@@ -52,6 +52,7 @@ function mockSmartlife(getValue: 'light' | 'dark' | 'system' = 'dark') {
       syncCourse: vi.fn(),
       getPage: vi.fn().mockResolvedValue(null),
       openFile: vi.fn(),
+      openExternal: vi.fn(),
       searchMaterials: vi.fn().mockResolvedValue([]),
       onSyncChanged: vi.fn().mockReturnValue(() => {}),
     },

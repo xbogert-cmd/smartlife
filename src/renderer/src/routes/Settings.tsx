@@ -10,6 +10,11 @@ export function Settings() {
   const [apiKeyConfigured, setApiKeyConfigured] = useState<boolean | null>(null);
   const [apiKeyError, setApiKeyError] = useState('');
   const [aiMode, setAiModeState] = useState<'ask' | 'assist' | 'auto' | null>(null);
+  const [canvasUrlInput, setCanvasUrlInput] = useState('');
+  const [canvasTokenInput, setCanvasTokenInput] = useState('');
+  const [canvasStatus, setCanvasStatus] = useState<{ tokenConfigured: boolean; baseUrlConfigured: boolean } | null>(null);
+  const [canvasMessage, setCanvasMessage] = useState('');
+  const [canvasError, setCanvasError] = useState('');
 
   useEffect(() => {
     window.smartlife.app.getVersion().then(setVersion).catch(() => {});
@@ -21,6 +26,13 @@ export function Settings() {
 
   useEffect(() => {
     window.smartlife.ai.getMode().then(setAiModeState);
+  }, []);
+
+  useEffect(() => {
+    window.smartlife.canvas
+      .getStatus()
+      .then((status) => setCanvasStatus(status))
+      .catch(() => {});
   }, []);
 
   async function handleSetAiMode(mode: 'ask' | 'assist' | 'auto'): Promise<void> {
@@ -37,6 +49,39 @@ export function Settings() {
     } catch (err) {
       setApiKeyError(err instanceof Error ? err.message : 'Failed to save key.');
     }
+  }
+
+  async function handleSaveCanvas(): Promise<void> {
+    setCanvasError('');
+    setCanvasMessage('');
+    try {
+      if (canvasUrlInput.trim().length > 0) await window.smartlife.canvas.setBaseUrl(canvasUrlInput);
+      if (canvasTokenInput.length > 0) await window.smartlife.canvas.setToken(canvasTokenInput);
+      setCanvasUrlInput('');
+      setCanvasTokenInput('');
+      setCanvasStatus(await window.smartlife.canvas.getStatus());
+      setCanvasMessage('Saved.');
+    } catch (err) {
+      setCanvasError(err instanceof Error ? err.message : 'Failed to save Canvas settings.');
+    }
+  }
+
+  async function handleTestCanvas(): Promise<void> {
+    setCanvasError('');
+    setCanvasMessage('Testing…');
+    const result = await window.smartlife.canvas.testConnection();
+    if (result.ok) {
+      setCanvasMessage(`Connected as ${result.name}.`);
+    } else {
+      setCanvasMessage('');
+      setCanvasError(result.error ?? 'Could not reach Canvas.');
+    }
+  }
+
+  async function handleDisconnectCanvas(): Promise<void> {
+    await window.smartlife.canvas.clearToken();
+    setCanvasStatus(await window.smartlife.canvas.getStatus());
+    setCanvasMessage('Token removed.');
   }
 
   return (
@@ -116,6 +161,69 @@ export function Settings() {
             </button>
           ))}
         </div>
+      </div>
+      <div className="flex flex-col gap-2" role="region" aria-label="Canvas settings">
+        <span style={{ color: 'var(--color-text-muted)' }}>
+          Canvas{' '}
+          {canvasStatus?.tokenConfigured && canvasStatus?.baseUrlConfigured
+            ? '— connected'
+            : canvasStatus
+              ? '— not connected'
+              : ''}
+        </span>
+        <input
+          type="text"
+          value={canvasUrlInput}
+          onChange={(e) => setCanvasUrlInput(e.target.value)}
+          placeholder="uncw.instructure.com"
+          aria-label="Canvas URL"
+          className="rounded-md px-3 py-1.5 text-sm"
+          style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text)', border: '1px solid var(--color-border)' }}
+        />
+        <div className="flex gap-2">
+          <input
+            type="password"
+            value={canvasTokenInput}
+            onChange={(e) => setCanvasTokenInput(e.target.value)}
+            placeholder="Canvas access token"
+            aria-label="Canvas access token"
+            className="rounded-md px-3 py-1.5 text-sm"
+            style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text)', border: '1px solid var(--color-border)' }}
+          />
+          <button
+            type="button"
+            onClick={handleSaveCanvas}
+            disabled={canvasUrlInput.trim().length === 0 && canvasTokenInput.length === 0}
+            className="rounded-md px-3 py-1.5 text-sm"
+            style={{ backgroundColor: 'var(--color-text)', color: 'var(--color-bg)', border: '1px solid var(--color-border)' }}
+          >
+            Save
+          </button>
+          <button
+            type="button"
+            onClick={handleTestCanvas}
+            className="rounded-md px-3 py-1.5 text-sm"
+            style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text)', border: '1px solid var(--color-border)' }}
+          >
+            Test connection
+          </button>
+          {canvasStatus?.tokenConfigured && (
+            <button
+              type="button"
+              onClick={handleDisconnectCanvas}
+              className="rounded-md px-3 py-1.5 text-sm"
+              style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text)', border: '1px solid var(--color-border)' }}
+            >
+              Disconnect
+            </button>
+          )}
+        </div>
+        <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+          Generate a token in Canvas under Account → Settings → Approved Integrations. UNCW tokens
+          expire after 90 days.
+        </span>
+        {canvasMessage && <span style={{ color: 'var(--color-text-muted)' }}>{canvasMessage}</span>}
+        {canvasError && <span style={{ color: '#F87171' }}>{canvasError}</span>}
       </div>
       <p style={{ color: 'var(--color-text-muted)' }}>SmartLife v{version}</p>
     </div>

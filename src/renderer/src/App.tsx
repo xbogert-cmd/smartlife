@@ -7,6 +7,7 @@ import { Home } from './routes/Home';
 import { Settings } from './routes/Settings';
 import { AI } from './routes/AI';
 import { School } from './routes/School';
+import { Course } from './routes/Course';
 import { ComingSoon } from './routes/ComingSoon';
 import { AIOverlay } from './ai/AIOverlay';
 import { CommandPalette } from './command-palette/CommandPalette';
@@ -48,6 +49,7 @@ function Shell() {
           <Route path="/settings" element={<Settings />} />
           <Route path="/ai" element={<AI />} />
           <Route path="/school" element={<School />} />
+          <Route path="/school/course/:courseId" element={<Course />} />
           {NAV_SECTIONS.filter(
             (section) =>
               section.path !== '/' &&

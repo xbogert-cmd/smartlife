@@ -1,4 +1,4 @@
-import { ipcMain, type BrowserWindow } from 'electron';
+import { ipcMain, shell, type BrowserWindow } from 'electron';
 import type Database from 'better-sqlite3';
 import {
   clearCanvasToken,
@@ -93,5 +93,21 @@ export function registerCanvasIpcHandlers(
     } catch (error) {
       return { ok: false, error: errorMessage(error) };
     }
+  });
+
+  ipcMain.handle('canvas:open-external', async (_event, url: string) => {
+    // These URLs come from Canvas data. Anything other than http(s) — file:,
+    // or a custom scheme registered by another app — must never be opened.
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      return { ok: false, error: 'That link is not a valid address.' };
+    }
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+      return { ok: false, error: 'Only web links can be opened.' };
+    }
+    await shell.openExternal(parsed.toString());
+    return { ok: true };
   });
 }

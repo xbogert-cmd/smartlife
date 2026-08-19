@@ -88,6 +88,8 @@ const smartlife = {
     getPage: (courseId: number, pageUrl: string): Promise<unknown> =>
       ipcRenderer.invoke('canvas:get-page', courseId, pageUrl),
     openFile: (fileId: number): Promise<CanvasActionResult> => ipcRenderer.invoke('canvas:open-file', fileId),
+    openExternal: (url: string): Promise<CanvasActionResult> =>
+      ipcRenderer.invoke('canvas:open-external', url),
     searchMaterials: (query: string): Promise<unknown[]> =>
       ipcRenderer.invoke('canvas:search-materials', query),
     onSyncChanged: (cb: () => void): (() => void) => {
