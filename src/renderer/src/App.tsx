@@ -6,6 +6,7 @@ import { NAV_SECTIONS } from './nav/sections';
 import { Home } from './routes/Home';
 import { Settings } from './routes/Settings';
 import { AI } from './routes/AI';
+import { School } from './routes/School';
 import { ComingSoon } from './routes/ComingSoon';
 import { AIOverlay } from './ai/AIOverlay';
 import { CommandPalette } from './command-palette/CommandPalette';
@@ -46,7 +47,14 @@ function Shell() {
           <Route path="/" element={<Home />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/ai" element={<AI />} />
-          {NAV_SECTIONS.filter((section) => section.path !== '/' && section.path !== '/settings' && section.path !== '/ai').map((section) => (
+          <Route path="/school" element={<School />} />
+          {NAV_SECTIONS.filter(
+            (section) =>
+              section.path !== '/' &&
+              section.path !== '/settings' &&
+              section.path !== '/ai' &&
+              section.path !== '/school'
+          ).map((section) => (
             <Route key={section.slug} path={section.path} element={<ComingSoon label={section.label} />} />
           ))}
           <Route path="*" element={<Home />} />
