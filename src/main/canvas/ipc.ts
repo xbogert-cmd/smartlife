@@ -19,6 +19,7 @@ import {
   searchMaterials,
 } from './queries';
 import type { CanvasScheduler } from './scheduler';
+import { isSafeExternalUrl } from '../url';
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -70,7 +71,13 @@ export function registerCanvasIpcHandlers(
   ipcMain.handle('canvas:sync-course', async (_event, courseId: number) => {
     const creds = getCanvasCredentials(db);
     if (creds === null) return { ok: false, tokenInvalid: false, errors: ['Canvas is not connected.'] };
-    const result = await syncCourseContent(db, creds, courseId);
+    // Route through the scheduler's own in-flight guard so this never runs
+    // concurrently with the background/focus-triggered sync — Canvas's API
+    // guidance is against overlapping request chains.
+    const result = await scheduler.runExclusive(() => syncCourseContent(db, creds, courseId));
+    if (result === null) {
+      return { ok: false, tokenInvalid: false, errors: ['A Canvas sync is already in progress. Try again shortly.'] };
+    }
     getWindow()?.webContents.send('canvas:sync-changed');
     return result;
   });
@@ -98,16 +105,10 @@ export function registerCanvasIpcHandlers(
   ipcMain.handle('canvas:open-external', async (_event, url: string) => {
     // These URLs come from Canvas data. Anything other than http(s) — file:,
     // or a custom scheme registered by another app — must never be opened.
-    let parsed: URL;
-    try {
-      parsed = new URL(url);
-    } catch {
-      return { ok: false, error: 'That link is not a valid address.' };
-    }
-    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    if (!isSafeExternalUrl(url)) {
       return { ok: false, error: 'Only web links can be opened.' };
     }
-    await shell.openExternal(parsed.toString());
+    await shell.openExternal(new URL(url).toString());
     return { ok: true };
   });
 }

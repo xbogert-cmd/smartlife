@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, session } from 'electron';
+import { app, BrowserWindow, Menu, session, shell } from 'electron';
 import { join } from 'node:path';
 import type Database from 'better-sqlite3';
 import { openDb } from './db';
@@ -9,6 +9,7 @@ import { startCanvasScheduler, type CanvasScheduler } from './canvas/scheduler';
 import { buildMenu } from './menu';
 import { buildCsp } from './csp';
 import { logError, getLogPath } from './log';
+import { isAppLoadTarget, isSafeExternalUrl, resolveAppLoadUrl } from './url';
 
 const isDev = !app.isPackaged;
 
@@ -48,6 +49,27 @@ if (!gotLock) {
         contextIsolation: true,
         nodeIntegration: false,
       },
+    });
+
+    // Canvas-authored HTML (announcements, page bodies) is sanitized but
+    // deliberately keeps ordinary <a href> links. Without this guard,
+    // clicking one would navigate this privileged window itself — and
+    // Electron re-runs the preload script on same-webContents navigation,
+    // handing the destination page the full window.smartlife IPC bridge.
+    // Route ordinary links to the OS browser instead; never let the window
+    // itself navigate anywhere but its own app content.
+    const appLoadUrl = resolveAppLoadUrl(process.env.ELECTRON_RENDERER_URL, join(__dirname, '../renderer/index.html'));
+    window.webContents.on('will-navigate', (event, navigationUrl) => {
+      if (isAppLoadTarget(navigationUrl, appLoadUrl)) return;
+      event.preventDefault();
+      if (isSafeExternalUrl(navigationUrl)) void shell.openExternal(navigationUrl);
+    });
+
+    // target="_blank" (or window.open) must never create a second privileged
+    // window; send it to the OS browser instead, same as will-navigate.
+    window.webContents.setWindowOpenHandler(({ url }) => {
+      if (isSafeExternalUrl(url)) void shell.openExternal(url);
+      return { action: 'deny' };
     });
 
     window.once('ready-to-show', () => window.show());

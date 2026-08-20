@@ -128,6 +128,45 @@ describe('startCanvasScheduler', () => {
     expect(syncCore).toHaveBeenCalledTimes(1);
   });
 
+  it('blocks runExclusive while a sync is already in flight', async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    vi.mocked(syncCore).mockImplementation(async () => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      inFlight -= 1;
+      return { ok: true, coursesSynced: 0, tokenInvalid: false, errors: [] };
+    });
+    const scheduler = startCanvasScheduler(makeDb(true), () => null);
+
+    // Kick off the scheduler's own background sync (via syncNow), then race
+    // a canvas:sync-course-style call through runExclusive against it.
+    const backgroundSync = scheduler.syncNow();
+    const courseSync = scheduler.runExclusive(async () => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      inFlight -= 1;
+      return 'course-result';
+    });
+    await vi.advanceTimersByTimeAsync(200);
+    const [, courseResult] = await Promise.all([backgroundSync, courseSync]);
+
+    expect(maxInFlight).toBe(1);
+    expect(courseResult).toBeNull();
+    scheduler.stop();
+  });
+
+  it('runs runExclusive normally when nothing else is in flight', async () => {
+    const scheduler = startCanvasScheduler(makeDb(true), () => null);
+    await vi.runOnlyPendingTimersAsync();
+
+    const result = await scheduler.runExclusive(async () => 'course-result');
+
+    expect(result).toBe('course-result');
+    scheduler.stop();
+  });
+
   it('notifies the renderer after a sync completes', async () => {
     const send = vi.fn();
     const scheduler = startCanvasScheduler(makeDb(true), () => ({ webContents: { send } }) as never);

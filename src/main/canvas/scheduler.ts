@@ -8,6 +8,12 @@ const FOCUS_THROTTLE_MS = 5 * 60 * 1000;
 
 export interface CanvasScheduler {
   syncNow(): Promise<void>;
+  // Runs fn() under the same in-flight guard as the background/focus syncs,
+  // so a manual per-course sync (canvas:sync-course) can never overlap a
+  // scheduled one. Returns null, without calling fn, if something is
+  // already syncing — matching the guard's existing "skip, don't queue"
+  // behavior rather than adding a queue.
+  runExclusive<T>(fn: () => Promise<T>): Promise<T | null>;
   stop(): void;
 }
 
@@ -25,20 +31,30 @@ export function startCanvasScheduler(
   let stopped = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
 
-  async function run(): Promise<void> {
-    if (syncing || stopped) return;
-    const creds = getCanvasCredentials(db);
-    if (creds === null) return;
+  async function runExclusive<T>(fn: () => Promise<T>): Promise<T | null> {
+    if (syncing) return null;
     syncing = true;
     try {
-      await syncCore(db, creds);
-      getWindow()?.webContents.send('canvas:sync-changed');
-    } catch {
-      // syncCore already records failures in canvas_sync_state; a throw here
-      // must still release the guard, which the finally block guarantees.
+      return await fn();
     } finally {
       syncing = false;
     }
+  }
+
+  async function run(): Promise<void> {
+    if (stopped) return;
+    const creds = getCanvasCredentials(db);
+    if (creds === null) return;
+    await runExclusive(async () => {
+      try {
+        await syncCore(db, creds);
+        getWindow()?.webContents.send('canvas:sync-changed');
+      } catch {
+        // syncCore already records failures in canvas_sync_state; a throw
+        // here must still release the guard, which runExclusive's finally
+        // block guarantees regardless.
+      }
+    });
   }
 
   // Self-rescheduling setTimeout, kicked off with a 0ms delay rather than
@@ -68,6 +84,7 @@ export function startCanvasScheduler(
 
   return {
     syncNow: run,
+    runExclusive,
     stop(): void {
       stopped = true;
       if (timer !== null) clearTimeout(timer);
