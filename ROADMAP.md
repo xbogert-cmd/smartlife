@@ -13,7 +13,7 @@ it — this file just tracks order and dependencies, not per-phase detail.
 
 ## Corrections to the original prompt
 
-The pasted prompt was a strong starting brief, but five things in it don't
+The pasted prompt was a strong starting brief, but seven things in it don't
 survive contact with reality. Fixing them now avoids building on a false
 assumption later:
 
@@ -46,6 +46,22 @@ assumption later:
    timer while open, plus sync on launch/focus/manual refresh. No external
    scheduler needed; genuinely simpler than the web app's approach.
 
+6. **Google OAuth client reuse** — an earlier version of this file said Phase 4
+   could reuse the dashboard project's OAuth client by adding a redirect URI. It
+   can't. The loopback redirect (`http://127.0.0.1:PORT`) that installed apps must
+   use requires an OAuth client of type **Desktop app**; the dashboard is a web app
+   and its client is type **Web application**, which is fixed at creation and will
+   not accept a loopback URI. The real shortcut is one level up: reuse the same
+   Google Cloud *project* and consent screen, adding a second Desktop app client.
+   Separately, a consent screen left in **"Testing"** publishing status issues
+   refresh tokens that **expire after 7 days** — it must be published to
+   "In production", whose only cost for a personal app is a one-time unverified-app
+   warning screen.
+7. **No email anywhere in the original prompt's phase list** — and the user's mail
+   and class schedule both run through Microsoft/Outlook, not Google. Added as
+   Phase 4b, placed after Google Calendar so it reuses that phase's calendar UI,
+   storage, and scheduler, and before Phase 6 so the Planner can see class times.
+
 One more cost flag not in the original prompt: **macOS notarization / Developer
 ID code signing costs $99/year (Apple Developer Program)**. Not needed to build
 and run SmartLife for yourself — Phase 9 packaging produces an unsigned `.app`
@@ -60,10 +76,11 @@ unless you ask for it.
 | **1. Foundation** | Electron shell, design system, routing, local SQLite DB + migrations, secure IPC, theme, settings, basic Home | — | None |
 | **2. AI Core** | Provider gateway (Claude adapter only for now), streaming, tool-calling architecture, ASK/ASSIST/AUTO permission modes, command palette, conversation storage | 1 | Anthropic API key (have it) — pay-as-you-go, user controls the cap |
 | **3. Canvas (read)** | Canvas REST client, courses/assignments/grades/modules, sync to local DB, School UI, course pages | 1, 2 | User generates a Canvas personal access token (free, self-service, ~2 min) |
-| **4. Google Calendar** | OAuth, multiple calendars, CRUD events, in-process sync, calendar AI tools, confirm-before-write | 1, 2 | Google Cloud OAuth app (free tier; can reuse the same OAuth client already being set up for the dashboard project if you want — just add SmartLife's redirect URI to it) |
+| **4. Google Calendar** | OAuth, multiple calendars, CRUD events, in-process sync, calendar AI tools, confirm-before-write | 1, 2 | Google Cloud OAuth app (free tier). **Must be a "Desktop app" client and the consent screen must be published to "In production"** — see correction #6 |
+| **4b. Microsoft / Outlook** | Outlook mail (read, search, send-with-confirmation) and Outlook calendar merged into the Phase 4 calendar views; Microsoft Graph client, OAuth, mail + calendar AI tools | 1, 2, 4 | Azure app registration (free). Reuses Phase 4's calendar UI, storage, and scheduler rather than building a second calendar |
 | **5. Embedded browser** | Tabs, navigation, page-text extraction, AI browser context/tools, Canvas-in-browser | 1 | None |
 | **3b. Canvas submissions** | Assignment workspace, editor, submission confirmation flow, browser fallback for unsupported submission types | 2, 3, 5 | None (uses the Phase 3 token) |
-| **6. Planner** | Unified tasks, work schedule, smart scheduler, Canvas↔Calendar sync, Today/AI briefing | 2, 3, 4 | None |
+| **6. Planner** | Unified tasks, work schedule, smart scheduler, Canvas↔Calendar sync, Today/AI briefing | 2, 3, 4 (4b for the class schedule) | None |
 | **7. Notes / Files / Goals / Search** | Notes, local file area, goals, universal search across everything | 1, 2 (light) | None |
 | **8. Multi-provider AI** | Gemini/OpenAI/OpenRouter/Groq/Ollama adapters, auto-routing, fallback, cost controls | 2 | Each additional provider is its own account/key decision, made when we get there — Ollama is free/local, the rest are pay-as-you-go like Claude |
 | **9. Polish** | Animation pass, accessibility, onboarding, keyboard shortcuts, macOS packaging | all | Apple Developer Program ($99/yr) only if/when you want signed distribution — skip by default |
@@ -76,4 +93,6 @@ unless you ask for it.
 - [x] Phase 2 built — plan: `docs/superpowers/plans/2026-08-17-smartlife-phase2-ai-core.md`. All 8 tasks + final whole-branch review + 1 fix round + closing re-review complete. Claude-backed chat (Tool Runner, streaming), 3-tier permission system, 3 starter tools, Settings API key + mode UI, AI nav section, Cmd+J overlay, Cmd+K palette. 69/69 tests, `npm run package` produces `SmartLife.app`. Verified end-to-end against a real Anthropic key on 2026-08-18: live streamed responses, Cmd+J overlay, Cmd+K palette, and the ask/assist/auto mode buttons all work in the packaged app. One known cosmetic gap: the `set_theme` tool writes the setting but the UI doesn't repaint until restart — deferred as a fast-follow.
 - [x] Phase 3 scoped — design spec: `docs/superpowers/specs/2026-08-18-smartlife-phase3-canvas-read-design.md`
 - [x] Phase 3 built — plan: `docs/superpowers/plans/2026-08-18-smartlife-phase3-canvas-read.md`. All 9 tasks + final whole-branch review + 1 fix round + closing re-review complete. Canvas REST client with serial (never-parallel) pagination, tiered sync (courses/grades/assignments/announcements on a schedule; modules/files/pages on first course open), School home view (due-soon, grade strip, announcements), course detail view with inline Page rendering and native-app file opening, Settings Canvas connection block, 3 READ-tier AI tools (upcoming assignments, grades, material search), and routine 90-day token-expiry handling (banner + warning + cached-data fallback, never a blank screen). 243/243 tests, `npm run package` produces `SmartLife.app`. The final review caught and fixed two real cross-task issues: no navigation guard on the main window (an ordinary link inside sanitized Canvas content could hand the trusted IPC bridge to whatever it navigated to — fixed with `will-navigate`/`setWindowOpenHandler` guards sharing the same protocol allowlist as the external-link handler) and a scheduler concurrency gap (opening a course could fire a Canvas request concurrently with a background sync — fixed by routing course-content sync through the scheduler's own exclusivity guard). Both fixes were mutation-tested, not just diffed. Two cosmetic items deliberately deferred: orphaned `canvas_pages` rows when a module item is deleted, and the scheduler retrying an already-known-dead token until the user replaces it (no harm beyond a wasted request). Not yet verified end-to-end against a real Canvas token — the user has one ready to paste into Settings themselves.
-- [ ] Phases 4-9: not started, each gets its own brainstorm when we get there
+- [x] Phase 4 scoped — design spec: `docs/superpowers/specs/2026-08-20-smartlife-phase4-google-calendar-design.md`
+- [ ] Phase 4 built — not started
+- [ ] Phases 4b-9: not started, each gets its own brainstorm when we get there
