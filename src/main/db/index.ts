@@ -6,6 +6,7 @@ import { runMigrations } from './migrate';
 import migration0001 from './migrations/0001_init.sql?raw';
 import migration0002 from './migrations/0002_ai_core.sql?raw';
 import migration0003 from './migrations/0003_canvas.sql?raw';
+import migration0004 from './migrations/0004_calendar.sql?raw';
 
 export function openDb(): Database.Database {
   const dbPath = join(app.getPath('userData'), 'smartlife.db');
@@ -17,6 +18,7 @@ export function openDb(): Database.Database {
     { filename: '0001_init.sql', sql: migration0001 },
     { filename: '0002_ai_core.sql', sql: migration0002 },
     { filename: '0003_canvas.sql', sql: migration0003 },
+    { filename: '0004_calendar.sql', sql: migration0004 },
   ]);
   return db;
 }
