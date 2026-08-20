@@ -74,11 +74,16 @@ async function postToken(body: URLSearchParams): Promise<TokenResponse> {
     throw new GoogleNetworkError(`Google returned ${response.status}.`);
   }
 
-  const parsed = JSON.parse(text) as {
-    access_token?: string;
-    refresh_token?: string;
-    expires_in?: number;
-  };
+  let parsed: { access_token?: string; refresh_token?: string; expires_in?: number };
+  try {
+    parsed = JSON.parse(text) as {
+      access_token?: string;
+      refresh_token?: string;
+      expires_in?: number;
+    };
+  } catch {
+    throw new GoogleAuthError('Google returned an unexpected response.');
+  }
   if (!parsed.access_token) {
     throw new GoogleAuthError('Google returned no access token.');
   }
@@ -148,8 +153,16 @@ export function runOAuthFlow(
   const state = base64Url(randomBytes(16));
 
   return new Promise<TokenResponse>((resolve, reject) => {
+    // Guards the request handler below: true once we've committed to
+    // handling one request, so a second one hitting the port gets a 404
+    // instead of being processed. Set synchronously -- see the comment at
+    // the commit point below for why.
     let settled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    // Captured once, when the server starts listening, so the request
+    // handler never needs server.address() -- which returns null once
+    // server.close() has been called.
+    let redirectUri = '';
 
     const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       if (settled) {
@@ -157,6 +170,20 @@ export function runOAuthFlow(
         res.end();
         return;
       }
+
+      // Commit to this request synchronously, before any async work --
+      // otherwise a second request landing on the port during the network
+      // round-trip to Google (a stray local process, a browser favicon
+      // fetch, anything) would still pass the `settled` check above, run
+      // the full validation path, and could resolve/reject the one shared
+      // promise out from under the legitimate request. Closing the server
+      // here (not just flipping the flag) also stops the port itself from
+      // accepting a new connection during that window, not merely ignoring
+      // one once it arrives.
+      settled = true;
+      if (timer !== null) clearTimeout(timer);
+      server.close();
+
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
       const returnedState = url.searchParams.get('state');
       const code = url.searchParams.get('code');
@@ -164,41 +191,43 @@ export function runOAuthFlow(
 
       if (returnedState !== state) {
         respond(res, 'Sign-in could not be verified.');
-        finish(null, new GoogleAuthError('The sign-in response could not be verified.'));
+        settle(null, new GoogleAuthError('The sign-in response could not be verified.'));
         return;
       }
       if (error !== null || code === null) {
         respond(res, 'Sign-in was cancelled.');
-        finish(null, new GoogleAuthError(`Google returned "${error ?? 'no code'}".`));
+        settle(null, new GoogleAuthError(`Google returned "${error ?? 'no code'}".`));
         return;
       }
 
       respond(res, 'SmartLife is connected.');
-      const redirectUri = redirectUriFor(server.address() as AddressInfo);
       exchangeCodeForTokens(config, code, redirectUri, verifier).then(
-        (tokens) => finish(tokens, null),
-        (err: unknown) => finish(null, err)
+        (tokens) => settle(tokens, null),
+        (err: unknown) => settle(null, err)
       );
     });
 
-    function finish(tokens: TokenResponse | null, error: unknown): void {
-      if (settled) return;
-      settled = true;
-      if (timer !== null) clearTimeout(timer);
-      server.close();
+    function settle(tokens: TokenResponse | null, error: unknown): void {
       if (error !== null) reject(error);
       else resolve(tokens as TokenResponse);
     }
 
-    server.on('error', (err) => finish(null, new GoogleNetworkError(err.message)));
+    server.on('error', (err) => {
+      if (settled) return;
+      settled = true;
+      if (timer !== null) clearTimeout(timer);
+      settle(null, new GoogleNetworkError(err.message));
+    });
 
     // Port 0 asks the OS for any free port; 127.0.0.1 keeps it off the network.
     server.listen(0, '127.0.0.1', () => {
-      const redirectUri = redirectUriFor(server.address() as AddressInfo);
-      timer = setTimeout(
-        () => finish(null, new GoogleAuthError('Sign-in timed out.')),
-        FLOW_TIMEOUT_MS
-      );
+      redirectUri = redirectUriFor(server.address() as AddressInfo);
+      timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        server.close();
+        settle(null, new GoogleAuthError('Sign-in timed out.'));
+      }, FLOW_TIMEOUT_MS);
       openBrowser(buildAuthUrl(config.clientId, redirectUri, challenge, state));
     });
   });

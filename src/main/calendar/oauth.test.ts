@@ -94,6 +94,16 @@ describe('exchangeCodeForTokens', () => {
       exchangeCodeForTokens(CONFIG, 'bad', 'http://127.0.0.1:5555', 'v')
     ).rejects.toBeInstanceOf(GoogleAuthError);
   });
+
+  it('maps a 200 response with a non-JSON body to GoogleAuthError instead of throwing a raw SyntaxError', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('not json', { status: 200 })));
+
+    const { exchangeCodeForTokens } = await import('./oauth');
+    const { GoogleAuthError } = await import('./errors');
+    await expect(
+      exchangeCodeForTokens(CONFIG, 'the-code', 'http://127.0.0.1:5555', 'v')
+    ).rejects.toBeInstanceOf(GoogleAuthError);
+  });
 });
 
 describe('refreshAccessToken', () => {
@@ -148,6 +158,22 @@ describe('runOAuthFlow', () => {
         const url = String(input);
         if (url.startsWith('http://127.0.0.1')) return realFetch(url, init);
         return Promise.resolve(new Response(JSON.stringify(body), { status: 200 }));
+      })
+    );
+  }
+
+  /** Like stubTokenEndpoint, but the token endpoint only resolves after
+   * `delayMs` -- giving a real window for another request to land on the
+   * loopback server while the exchange is still in flight. */
+  function stubTokenEndpointDelayed(body: unknown, delayMs: number): void {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: string | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.startsWith('http://127.0.0.1')) return realFetch(url, init);
+        return new Promise<Response>((resolve) => {
+          setTimeout(() => resolve(new Response(JSON.stringify(body), { status: 200 })), delayMs);
+        });
       })
     );
   }
@@ -216,5 +242,37 @@ describe('runOAuthFlow', () => {
     });
 
     await expect(pending).rejects.toBeInstanceOf(GoogleAuthError);
+  });
+
+  it('ignores a stray request that lands on the port while the legitimate exchange is in flight', async () => {
+    // Delay Google's response so there's a real window, during the async
+    // token exchange, for a second request to reach the loopback server.
+    stubTokenEndpointDelayed({ access_token: 'at-1', refresh_token: 'rt-1', expires_in: 3599 }, 30);
+    const { runOAuthFlow } = await import('./oauth');
+
+    const pending = runOAuthFlow(CONFIG, (url) => {
+      const state = new URL(url).searchParams.get('state') ?? '';
+      // The legitimate redirect -- fired but not awaited.
+      callBack(url, { code: 'the-code', state });
+      // A stray/adversarial request landing on the same port moments later
+      // (e.g. a browser favicon fetch, or another local process), before the
+      // legitimate request's token exchange has resolved. It must not be
+      // able to reject the one shared promise out from under the real
+      // request.
+      callBack(url, { code: 'attacker-code', state: 'wrong-state' });
+    });
+
+    await expect(pending).resolves.toEqual({
+      accessToken: 'at-1',
+      refreshToken: 'rt-1',
+      expiresIn: 3599,
+    });
+
+    const exchanges = vi
+      .mocked(globalThis.fetch)
+      .mock.calls.filter(([input]) => String(input).includes('oauth2.googleapis.com'));
+    // The stray request must be rejected at the door, not processed --
+    // otherwise it would have burned a second call to Google.
+    expect(exchanges).toHaveLength(1);
   });
 });
