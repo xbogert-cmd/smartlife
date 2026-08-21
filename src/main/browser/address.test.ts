@@ -51,4 +51,9 @@ describe('resolveAddressInput', () => {
   it('does not treat a trailing-dot host as a host', () => {
     expect(resolveAddressInput('example.')).toBe(`${SEARCH_URL_PREFIX}example.`);
   });
+
+  it('searches for email-shaped input instead of navigating', () => {
+    expect(resolveAddressInput('jane.doe@uncw.edu')).toBe(`${SEARCH_URL_PREFIX}jane.doe%40uncw.edu`);
+    expect(resolveAddressInput('user@example.com')).toBe(`${SEARCH_URL_PREFIX}user%40example.com`);
+  });
 });

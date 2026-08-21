@@ -33,6 +33,7 @@ function isHostShaped(value: string): boolean {
   if (/\s/.test(value)) return false;
   const host = hostOf(value);
   if (host.length === 0) return false;
+  if (host.includes('@')) return false;
   if (isLoopbackHost(host)) return true;
   if (!host.includes('.')) return false;
   if (host.endsWith('.')) return false;
