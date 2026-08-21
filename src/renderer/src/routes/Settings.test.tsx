@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ThemeProvider } from '../theme/ThemeProvider';
 import { Settings } from './Settings';
@@ -41,6 +41,14 @@ beforeEach(() => {
       setToken: vi.fn().mockResolvedValue(undefined),
       clearToken: vi.fn().mockResolvedValue(undefined),
       testConnection: vi.fn().mockResolvedValue({ ok: false, error: 'Add both the Canvas URL and an access token first.' }),
+    },
+    calendar: {
+      getStatus: vi.fn().mockResolvedValue({ clientConfigured: false, connected: false, accountEmail: null }),
+      listCalendars: vi.fn().mockResolvedValue([]),
+      setClientConfig: vi.fn().mockResolvedValue({ ok: true }),
+      connect: vi.fn().mockResolvedValue({ ok: true }),
+      disconnect: vi.fn().mockResolvedValue({ ok: true }),
+      setCalendarEnabled: vi.fn().mockResolvedValue([]),
     },
   } as unknown as typeof window.smartlife;
 });
@@ -133,5 +141,62 @@ describe('Settings — Canvas', () => {
     });
     await userEvent.click(within(canvasRegion()).getByRole('button', { name: 'Test connection' }));
     expect(await screen.findByText(/canvas rejected the access token/i)).toBeInTheDocument();
+  });
+});
+
+describe('Settings — Google Calendar', () => {
+  function region(): HTMLElement {
+    return screen.getByRole('region', { name: 'Google Calendar settings' });
+  }
+
+  it('saves the client credentials', async () => {
+    render(
+      <ThemeProvider>
+        <Settings />
+      </ThemeProvider>
+    );
+    await screen.findByRole('heading', { name: 'Settings' });
+
+    fireEvent.change(screen.getByLabelText('Google Client ID'), { target: { value: 'id-1' } });
+    fireEvent.change(screen.getByLabelText('Google Client Secret'), { target: { value: 'secret-1' } });
+    fireEvent.click(within(region()).getByRole('button', { name: 'Save' }));
+
+    await waitFor(() =>
+      expect(window.smartlife.calendar.setClientConfig).toHaveBeenCalledWith('id-1', 'secret-1')
+    );
+  });
+
+  it('clears the secret field after saving', async () => {
+    render(
+      <ThemeProvider>
+        <Settings />
+      </ThemeProvider>
+    );
+    await screen.findByRole('heading', { name: 'Settings' });
+
+    fireEvent.change(screen.getByLabelText('Google Client ID'), { target: { value: 'id-1' } });
+    fireEvent.change(screen.getByLabelText('Google Client Secret'), { target: { value: 'secret-1' } });
+    fireEvent.click(within(region()).getByRole('button', { name: 'Save' }));
+
+    // Leaving a secret sitting in a visible form field is careless even when
+    // it is not strictly confidential.
+    await waitFor(() => expect(screen.getByLabelText('Google Client Secret')).toHaveValue(''));
+  });
+
+  it('surfaces a connect failure instead of claiming success', async () => {
+    vi.mocked(window.smartlife.calendar.connect).mockResolvedValue({
+      ok: false,
+      error: 'Google did not return a refresh token.',
+    } as never);
+    render(
+      <ThemeProvider>
+        <Settings />
+      </ThemeProvider>
+    );
+    await screen.findByRole('heading', { name: 'Settings' });
+
+    fireEvent.click(within(region()).getByRole('button', { name: 'Connect' }));
+
+    expect(await within(region()).findByRole('alert')).toHaveTextContent(/refresh token/i);
   });
 });

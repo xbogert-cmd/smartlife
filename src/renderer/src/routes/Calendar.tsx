@@ -4,13 +4,19 @@ import { useCalendar } from '../calendar/useCalendar';
 import { AgendaPanel } from '../calendar/AgendaPanel';
 import { AllDayStrip } from '../calendar/AllDayStrip';
 import { ConnectBanner } from '../calendar/ConnectBanner';
+import { EventDialog } from '../calendar/EventDialog';
 import { WeekGrid } from '../calendar/WeekGrid';
 import { formatRelative } from '../calendar/formatters';
 import { formatDayHeader } from '../calendar/formatters';
+import type { CalendarEvent } from '../calendar/types';
 
 export function Calendar(): React.JSX.Element {
-  const { status, events, assignments, weekDates, syncing, shiftWeek, goToToday, refresh } = useCalendar();
+  const { status, calendars, events, assignments, weekDates, syncing, shiftWeek, goToToday, refresh, reload } =
+    useCalendar();
   const [showAssignments, setShowAssignments] = useState(true);
+  const [dialog, setDialog] = useState<
+    { mode: 'create'; slotStart: Date } | { mode: 'edit'; event: CalendarEvent } | null
+  >(null);
   const navigate = useNavigate();
 
   // null (loading) and "not connected" render the same prompt so there is no
@@ -88,14 +94,18 @@ export function Calendar(): React.JSX.Element {
               </div>
             ))}
           </div>
-          <AllDayStrip days={weekDates} events={events} onSelectEvent={() => {}} />
+          <AllDayStrip
+            days={weekDates}
+            events={events}
+            onSelectEvent={(event) => setDialog({ mode: 'edit', event })}
+          />
           <WeekGrid
             days={weekDates}
             events={events}
             assignments={assignments}
             showAssignments={showAssignments}
-            onSelectEvent={() => {}}
-            onSelectSlot={() => {}}
+            onSelectEvent={(event) => setDialog({ mode: 'edit', event })}
+            onSelectSlot={(slotStart) => setDialog({ mode: 'create', slotStart })}
           />
         </div>
         <AgendaPanel
@@ -103,9 +113,22 @@ export function Calendar(): React.JSX.Element {
           events={events}
           assignments={assignments}
           showAssignments={showAssignments}
-          onSelectEvent={() => {}}
+          onSelectEvent={(event) => setDialog({ mode: 'edit', event })}
         />
       </div>
+
+      {dialog !== null && (
+        <EventDialog
+          calendars={calendars}
+          event={dialog.mode === 'edit' ? dialog.event : undefined}
+          slotStart={dialog.mode === 'create' ? dialog.slotStart : undefined}
+          onClose={() => setDialog(null)}
+          onSaved={() => {
+            setDialog(null);
+            void reload();
+          }}
+        />
+      )}
     </div>
   );
 }

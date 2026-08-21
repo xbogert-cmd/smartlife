@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { CalendarToggles } from '../calendar/CalendarToggles';
 import { useTheme } from '../theme/ThemeProvider';
 
 const OPTIONS = ['light', 'dark', 'system'] as const;
@@ -15,6 +16,18 @@ export function Settings() {
   const [canvasStatus, setCanvasStatus] = useState<{ tokenConfigured: boolean; baseUrlConfigured: boolean } | null>(null);
   const [canvasMessage, setCanvasMessage] = useState('');
   const [canvasError, setCanvasError] = useState('');
+  const [calendarStatus, setCalendarStatus] = useState<{
+    clientConfigured: boolean;
+    connected: boolean;
+    accountEmail: string | null;
+  } | null>(null);
+  const [googleCalendars, setGoogleCalendars] = useState<
+    Array<{ id: string; summary: string; backgroundColor: string | null; isPrimary: boolean; enabled: boolean }>
+  >([]);
+  const [clientIdInput, setClientIdInput] = useState('');
+  const [clientSecretInput, setClientSecretInput] = useState('');
+  const [calendarMessage, setCalendarMessage] = useState('');
+  const [calendarError, setCalendarError] = useState('');
 
   useEffect(() => {
     window.smartlife.app.getVersion().then(setVersion).catch(() => {});
@@ -33,7 +46,48 @@ export function Settings() {
       .getStatus()
       .then((status) => setCanvasStatus(status))
       .catch(() => {});
+    void refreshCalendarState();
   }, []);
+
+  async function refreshCalendarState(): Promise<void> {
+    setCalendarStatus((await window.smartlife.calendar.getStatus()) as never);
+    setGoogleCalendars((await window.smartlife.calendar.listCalendars()) as never);
+  }
+
+  async function handleSaveGoogleClient(): Promise<void> {
+    setCalendarError('');
+    const result = await window.smartlife.calendar.setClientConfig(clientIdInput, clientSecretInput);
+    if (!result.ok) {
+      setCalendarError(result.error ?? 'Could not save the client credentials.');
+      return;
+    }
+    setClientSecretInput('');
+    setCalendarMessage('Client credentials saved.');
+    await refreshCalendarState();
+  }
+
+  async function handleConnectGoogle(): Promise<void> {
+    setCalendarError('');
+    setCalendarMessage('Finish signing in in your browser…');
+    const result = await window.smartlife.calendar.connect();
+    if (!result.ok) {
+      setCalendarMessage('');
+      setCalendarError(result.error ?? 'Could not connect to Google.');
+      return;
+    }
+    setCalendarMessage('Connected.');
+    await refreshCalendarState();
+  }
+
+  async function handleDisconnectGoogle(): Promise<void> {
+    await window.smartlife.calendar.disconnect();
+    setCalendarMessage('Disconnected.');
+    await refreshCalendarState();
+  }
+
+  async function handleToggleCalendar(calendarId: string, enabled: boolean): Promise<void> {
+    setGoogleCalendars((await window.smartlife.calendar.setCalendarEnabled(calendarId, enabled)) as never);
+  }
 
   async function handleSetAiMode(mode: 'ask' | 'assist' | 'auto'): Promise<void> {
     setAiModeState(mode);
@@ -224,6 +278,50 @@ export function Settings() {
         </span>
         {canvasMessage && <span style={{ color: 'var(--color-text-muted)' }}>{canvasMessage}</span>}
         {canvasError && <span style={{ color: '#F87171' }}>{canvasError}</span>}
+      </div>
+      <div className="flex flex-col gap-2" role="region" aria-label="Google Calendar settings">
+        <span style={{ color: 'var(--color-text-muted)' }}>
+          Google Calendar{' '}
+          {calendarStatus?.connected
+            ? `— connected as ${calendarStatus.accountEmail ?? 'your account'}`
+            : calendarStatus
+              ? '— not connected'
+              : ''}
+        </span>
+        <input
+          type="text"
+          value={clientIdInput}
+          onChange={(e) => setClientIdInput(e.target.value)}
+          placeholder="123-abc.apps.googleusercontent.com"
+          aria-label="Google Client ID"
+          className="rounded-md px-3 py-1.5 text-sm"
+          style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text)', border: '1px solid var(--color-border)' }}
+        />
+        <input
+          type="password"
+          value={clientSecretInput}
+          onChange={(e) => setClientSecretInput(e.target.value)}
+          placeholder="Client secret"
+          aria-label="Google Client Secret"
+          className="rounded-md px-3 py-1.5 text-sm"
+          style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text)', border: '1px solid var(--color-border)' }}
+        />
+        <div className="flex gap-2">
+          <button type="button" onClick={() => void handleSaveGoogleClient()} className="rounded-md px-3 py-1.5 text-sm" style={{ backgroundColor: 'var(--color-text)', color: 'var(--color-bg)' }}>
+            Save
+          </button>
+          <button type="button" onClick={() => void handleConnectGoogle()} className="rounded-md px-3 py-1.5 text-sm" style={{ border: '1px solid var(--color-border)', color: 'var(--color-text)' }}>
+            Connect
+          </button>
+          <button type="button" onClick={() => void handleDisconnectGoogle()} className="rounded-md px-3 py-1.5 text-sm" style={{ border: '1px solid var(--color-border)', color: 'var(--color-text)' }}>
+            Disconnect
+          </button>
+        </div>
+        {calendarMessage.length > 0 && <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>{calendarMessage}</span>}
+        {calendarError.length > 0 && <span role="alert" className="text-xs" style={{ color: '#EF4444' }}>{calendarError}</span>}
+        {calendarStatus?.connected === true && (
+          <CalendarToggles calendars={googleCalendars} onToggle={(id, enabled) => void handleToggleCalendar(id, enabled)} />
+        )}
       </div>
       <p style={{ color: 'var(--color-text-muted)' }}>SmartLife v{version}</p>
     </div>
