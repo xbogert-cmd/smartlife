@@ -8,6 +8,8 @@ import { registerCanvasIpcHandlers } from './canvas/ipc';
 import { startCanvasScheduler, type CanvasScheduler } from './canvas/scheduler';
 import { registerCalendarIpcHandlers } from './calendar/ipc';
 import { startCalendarScheduler, type CalendarScheduler } from './calendar/scheduler';
+import { registerBrowserIpcHandlers } from './browser/ipc';
+import type { BrowserHost } from './browser/view';
 import { buildMenu } from './menu';
 import { buildCsp } from './csp';
 import { logError, getLogPath } from './log';
@@ -30,6 +32,7 @@ if (!gotLock) {
   let handlersRegistered = false;
   let canvasScheduler: CanvasScheduler | null = null;
   let calendarScheduler: CalendarScheduler | null = null;
+  let browserHost: BrowserHost | null = null;
 
   app.on('second-instance', () => {
     if (mainWindow) {
@@ -102,6 +105,7 @@ if (!gotLock) {
         registerCanvasIpcHandlers(dbConnection, () => mainWindow, canvasScheduler);
         calendarScheduler = startCalendarScheduler(dbConnection, () => mainWindow);
         registerCalendarIpcHandlers(dbConnection, () => mainWindow, calendarScheduler);
+        browserHost = registerBrowserIpcHandlers(dbConnection, () => mainWindow);
         handlersRegistered = true;
       } catch (error) {
         logError('startup', error);
@@ -144,6 +148,7 @@ if (!gotLock) {
   app.on('before-quit', () => {
     canvasScheduler?.stop();
     calendarScheduler?.stop();
+    browserHost?.destroy();
     dbConnection?.close();
   });
 }

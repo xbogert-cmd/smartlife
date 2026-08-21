@@ -58,6 +58,46 @@ interface EventDraft {
   attendees?: string[];
 }
 
+interface BrowserTab {
+  id: string;
+  url: string;
+  title: string;
+  loading: boolean;
+  canGoBack: boolean;
+  canGoForward: boolean;
+  error: { code: number; description: string } | null;
+}
+
+interface BrowserState {
+  tabs: BrowserTab[];
+  activeTabId: string;
+}
+
+interface BrowserDownloadRequest {
+  id: string;
+  filename: string;
+  sizeBytes: number;
+  sourceUrl: string;
+}
+
+interface BrowserFindResult {
+  activeMatchOrdinal: number;
+  matches: number;
+}
+
+interface BrowserRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+interface BrowserHistoryEntry {
+  url: string;
+  title: string | null;
+  visitedAt: string;
+}
+
 const smartlife = {
   theme: {
     get: (): Promise<'light' | 'dark' | 'system'> => ipcRenderer.invoke('theme:get'),
@@ -147,6 +187,48 @@ const smartlife = {
       const listener = (): void => cb();
       ipcRenderer.on('calendar:sync-changed', listener);
       return () => ipcRenderer.removeListener('calendar:sync-changed', listener);
+    },
+  },
+  browser: {
+    getState: (): Promise<BrowserState> => ipcRenderer.invoke('browser:get-state'),
+    // Exposed to the app, deliberately not to the AI: Phase 3b opens a Canvas
+    // assignment URL here. AI-driven navigation is Phase 5b.
+    openTab: (url: string): Promise<string> => ipcRenderer.invoke('browser:open-tab', url),
+    closeTab: (id: string): Promise<void> => ipcRenderer.invoke('browser:close-tab', id),
+    activateTab: (id: string): Promise<void> => ipcRenderer.invoke('browser:activate-tab', id),
+    navigate: (id: string, input: string): Promise<void> =>
+      ipcRenderer.invoke('browser:navigate', id, input),
+    goBack: (id: string): Promise<void> => ipcRenderer.invoke('browser:go-back', id),
+    goForward: (id: string): Promise<void> => ipcRenderer.invoke('browser:go-forward', id),
+    reload: (id: string): Promise<void> => ipcRenderer.invoke('browser:reload', id),
+    stop: (id: string): Promise<void> => ipcRenderer.invoke('browser:stop', id),
+    find: (id: string, text: string): Promise<void> => ipcRenderer.invoke('browser:find', id, text),
+    stopFind: (id: string): Promise<void> => ipcRenderer.invoke('browser:stop-find', id),
+    setBounds: (rect: BrowserRect): Promise<void> => ipcRenderer.invoke('browser:set-bounds', rect),
+    setRouteActive: (active: boolean): Promise<void> =>
+      ipcRenderer.invoke('browser:set-route-active', active),
+    suspend: (): Promise<void> => ipcRenderer.invoke('browser:suspend'),
+    resume: (): Promise<void> => ipcRenderer.invoke('browser:resume'),
+    findHistory: (prefix: string): Promise<BrowserHistoryEntry[]> =>
+      ipcRenderer.invoke('browser:find-history', prefix),
+    clearData: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('browser:clear-data'),
+    respondToDownload: (id: string, approved: boolean): Promise<void> =>
+      ipcRenderer.invoke('browser:download-response', id, approved),
+    onStateChanged: (cb: (state: BrowserState) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, state: BrowserState): void => cb(state);
+      ipcRenderer.on('browser:state-changed', listener);
+      return () => ipcRenderer.removeListener('browser:state-changed', listener);
+    },
+    onDownloadRequest: (cb: (request: BrowserDownloadRequest) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, request: BrowserDownloadRequest): void =>
+        cb(request);
+      ipcRenderer.on('browser:download-request', listener);
+      return () => ipcRenderer.removeListener('browser:download-request', listener);
+    },
+    onFindResult: (cb: (result: BrowserFindResult) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, result: BrowserFindResult): void => cb(result);
+      ipcRenderer.on('browser:find-result', listener);
+      return () => ipcRenderer.removeListener('browser:find-result', listener);
     },
   },
 };
