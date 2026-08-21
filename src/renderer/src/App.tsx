@@ -13,6 +13,8 @@ import { Browser } from './routes/Browser';
 import { ComingSoon } from './routes/ComingSoon';
 import { AIOverlay } from './ai/AIOverlay';
 import { CommandPalette } from './command-palette/CommandPalette';
+import { DownloadPrompt } from './browser/DownloadPrompt';
+import { useBrowserSuspend } from './browser/useBrowserSuspend';
 
 function NavigationBridge() {
   const navigate = useNavigate();
@@ -23,6 +25,11 @@ function NavigationBridge() {
 function Shell() {
   const [overlayOpen, setOverlayOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+
+  // The Cmd+J overlay and Cmd+K palette are React and would otherwise be
+  // painted underneath the native browser view.
+  useBrowserSuspend(overlayOpen);
+  useBrowserSuspend(paletteOpen);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent): void {
@@ -78,6 +85,7 @@ function Shell() {
           }}
         />
       )}
+      <DownloadPrompt />
     </div>
   );
 }
