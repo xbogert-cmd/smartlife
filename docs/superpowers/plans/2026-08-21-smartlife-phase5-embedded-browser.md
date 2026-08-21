@@ -1671,6 +1671,7 @@ import {
   createWindowOpenHandler,
   EMBEDDED_WEB_PREFERENCES,
 } from './handlers';
+import { isAllowedNavigationUrl } from './security';
 
 describe('EMBEDDED_WEB_PREFERENCES', () => {
   // The entire security model of this phase rests on this one assertion.
@@ -2404,6 +2405,27 @@ describe('tabs', () => {
     expect(added[0].webContents.loadedUrls.at(-1)).toContain('duckduckgo.com');
   });
 
+  // will-navigate does not fire for loadURL (Electron's docs say so
+  // explicitly), so the address bar would otherwise bypass the allowlist
+  // entirely.
+  it.each(['file:///etc/passwd', 'javascript://alert(1)', 'data:text/html,<h1>x</h1>'])(
+    'refuses to load %s typed into the address bar',
+    (input) => {
+      const { host, added } = makeHost();
+      const before = added[0].webContents.loadedUrls.length;
+      host.navigate(host.getState().activeTabId, input);
+      expect(added[0].webContents.loadedUrls).toHaveLength(before);
+      expect(host.getState().tabs[0].error?.description).toContain('only opens http and https');
+    }
+  );
+
+  it('refuses a disallowed url passed to openTab by the app', () => {
+    const { host, added } = makeHost();
+    host.openTab('file:///etc/passwd');
+    const newView = added[added.length - 1];
+    expect(newView.webContents.loadedUrls).toHaveLength(0);
+  });
+
   it('destroys the view when a tab closes', () => {
     const { host, removed } = makeHost();
     const opened = host.openTab('https://uncw.edu/');
@@ -2813,12 +2835,36 @@ export function createBrowserHost(options: BrowserHostOptions): BrowserHost {
     });
   }
 
+  /**
+   * The single choke point for every app-initiated load.
+   *
+   * This guard is NOT redundant with the will-navigate handler. Electron's own
+   * documentation is explicit: will-navigate "will not emit when the navigation
+   * is started programmatically with APIs like webContents.loadURL". So the
+   * address bar, the renderer's openTab IPC, and a restored tab all reach
+   * loadURL without ever passing the navigation guard. Without this check,
+   * typing file:///etc/passwd into the address bar would simply load it.
+   */
+  function loadUrlSafely(contents: WebContents, id: string, url: string): void {
+    if (!isAllowedNavigationUrl(url)) {
+      note('browser:navigation-blocked', url);
+      dispatch({
+        type: 'load-failed',
+        id,
+        code: ERR_BLOCKED_SCHEME,
+        description: `Blocked a link to ${url} — this browser only opens http and https pages.`,
+      });
+      return;
+    }
+    void contents.loadURL(url).catch((error) => logError('browser:loadURL', error));
+  }
+
   function createViewFor(id: string, url: string): WebContentsView {
     const view = new WebContentsView({ webPreferences: { ...EMBEDDED_WEB_PREFERENCES } });
     views.set(id, view);
     window.contentView.addChildView(view);
     wire(id, view.webContents);
-    void view.webContents.loadURL(url).catch((error) => logError('browser:loadURL', error));
+    loadUrlSafely(view.webContents, id, url);
     return view;
   }
 
@@ -2872,8 +2918,7 @@ export function createBrowserHost(options: BrowserHostOptions): BrowserHost {
     navigate(id, input) {
       const contents = activeContents(id);
       if (!contents) return;
-      const url = resolveAddressInput(input);
-      void contents.loadURL(url).catch((error) => logError('browser:loadURL', error));
+      loadUrlSafely(contents, id, resolveAddressInput(input));
     },
 
     goBack: (id) => activeContents(id)?.navigationHistory.goBack(),
@@ -2933,7 +2978,7 @@ export function createBrowserHost(options: BrowserHostOptions): BrowserHost {
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `npm test -- src/main/browser/view.test.ts`
-Expected: PASS — 3 construction tests, 5 tab tests, 6 visibility tests, 11 event tests, 2 session tests, 3 readPage tests.
+Expected: PASS — 3 construction tests, 9 tab tests, 6 visibility tests, 11 event tests, 2 session tests, 3 readPage tests.
 
 - [ ] **Step 5: Run the whole suite and typecheck**
 
