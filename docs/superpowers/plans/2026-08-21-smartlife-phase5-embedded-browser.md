@@ -2332,14 +2332,16 @@ function makeHost() {
   };
   const db = makeDb();
   const onStateChange = vi.fn();
+  const onFindResult = vi.fn();
   const host = createBrowserHost({
     window: window as never,
     db,
     downloadsDir: '/tmp/Downloads',
     onStateChange,
     confirmDownload: async () => false,
+    onFindResult,
   });
-  return { host, added, removed, db, onStateChange };
+  return { host, added, removed, db, onStateChange, onFindResult };
 }
 
 beforeEach(() => {
@@ -2531,6 +2533,12 @@ describe('webContents events', () => {
     added[0].webContents.emit('will-navigate', event, 'https://uncw.edu/');
     expect(event.preventDefault).not.toHaveBeenCalled();
   });
+
+  it('forwards find-in-page results so the counter has a source', () => {
+    const { added, onFindResult } = makeHost();
+    added[0].webContents.emit('found-in-page', {}, { activeMatchOrdinal: 3, matches: 17 });
+    expect(onFindResult).toHaveBeenCalledWith({ activeMatchOrdinal: 3, matches: 17 });
+  });
 });
 
 describe('session configuration', () => {
@@ -2615,12 +2623,18 @@ import { BLANK_URL, createInitialState, tabReducer, type TabAction, type TabStat
  *  so surfacing it as an error would show a failure screen on healthy pages. */
 const ERR_ABORTED = -3;
 
+export interface FindResult {
+  activeMatchOrdinal: number;
+  matches: number;
+}
+
 export interface BrowserHostOptions {
   window: BaseWindow;
   db: Database.Database;
   downloadsDir: string;
   onStateChange: (state: TabState) => void;
   confirmDownload: (request: DownloadRequest) => Promise<boolean>;
+  onFindResult: (result: FindResult) => void;
 }
 
 export interface BrowserHost {
@@ -2654,7 +2668,7 @@ export interface BrowserHost {
  * without Electron.
  */
 export function createBrowserHost(options: BrowserHostOptions): BrowserHost {
-  const { window, db, downloadsDir, onStateChange, confirmDownload } = options;
+  const { window, db, downloadsDir, onStateChange, confirmDownload, onFindResult } = options;
 
   const views = new Map<string, WebContentsView>();
   const suspension = createSuspendCounter();
@@ -2762,6 +2776,12 @@ export function createBrowserHost(options: BrowserHostOptions): BrowserHost {
 
     contents.on('unresponsive', () => {
       dispatch({ type: 'load-failed', id, code: -2, description: 'This page stopped responding' });
+    });
+
+    // Electron reports find results asynchronously; the FindBar's "3 of 17"
+    // counter has no other source.
+    contents.on('found-in-page', (_event, result) => {
+      onFindResult({ activeMatchOrdinal: result.activeMatchOrdinal, matches: result.matches });
     });
   }
 
@@ -2885,7 +2905,7 @@ export function createBrowserHost(options: BrowserHostOptions): BrowserHost {
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `npm test -- src/main/browser/view.test.ts`
-Expected: PASS — 3 construction tests, 5 tab tests, 6 visibility tests, 9 event tests, 2 session tests, 3 readPage tests.
+Expected: PASS — 3 construction tests, 5 tab tests, 6 visibility tests, 10 event tests, 2 session tests, 3 readPage tests.
 
 - [ ] **Step 5: Run the whole suite and typecheck**
 
@@ -2897,6 +2917,1461 @@ Expected: PASS, no type errors, no lint errors.
 ```bash
 git add src/main/browser/view.ts src/main/browser/view.test.ts
 git commit -m "Add WebContentsView host wiring tabs, security handlers, and extraction"
+```
+
+---
+
+### Task 10: IPC, preload bridge, and boot wiring
+
+**Files:**
+- Create: `src/main/browser/ipc.ts`
+- Create: `src/main/browser/ipc.test.ts`
+- Modify: `src/preload/index.ts`
+- Modify: `src/main/index.ts`
+
+**Interfaces:**
+- Consumes: `createBrowserHost`, `BrowserHost`, `FindResult` (`./view`); `clearHistory`, `findHistory`, `historyCutoff`, `pruneHistory` (`./history`); `BROWSER_PARTITION` (`./handlers`); `DownloadRequest` (`./downloads`); `ViewportRect` (`./geometry`).
+- Produces:
+  - `registerBrowserIpcHandlers(db: Database.Database, getWindow: () => BrowserWindow | null): BrowserHost`
+  - The `window.smartlife.browser` bridge object.
+
+**Two design points worth stating:**
+
+**`openTab` is exposed to the renderer, but never to the AI.** Phase 3b needs to open a specific Canvas assignment URL in a tab and send the user to the Browser section. That is the *app* opening a tab, which is fine. The AI opening a tab is Phase 5b, and the split is enforced by where the capability lives: an IPC channel the renderer can call, and no corresponding tool in the registry.
+
+**Download confirmation is a request/response channel pair**, mirroring `ai:confirm-request` / `ai:confirm-response` exactly. It is not folded into the state channel, because a confirmation is a question awaiting an answer, not a state broadcast.
+
+- [ ] **Step 1: Write the failing test**
+
+Create `src/main/browser/ipc.test.ts`:
+
+```ts
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import Database from 'better-sqlite3';
+
+const handlers = new Map<string, (...args: unknown[]) => unknown>();
+const fakeSession = {
+  clearStorageData: vi.fn(async () => {}),
+  clearCache: vi.fn(async () => {}),
+};
+
+vi.mock('electron', () => ({
+  ipcMain: {
+    handle: (channel: string, fn: (...args: unknown[]) => unknown) => {
+      handlers.set(channel, fn);
+    },
+  },
+  session: { fromPartition: () => fakeSession },
+  app: { getPath: (name: string) => `/tmp/${name}` },
+}));
+
+const hostStub = {
+  getState: vi.fn(() => ({ tabs: [], activeTabId: 'tab-1' })),
+  openTab: vi.fn(() => 'tab-2'),
+  closeTab: vi.fn(),
+  activateTab: vi.fn(),
+  navigate: vi.fn(),
+  goBack: vi.fn(),
+  goForward: vi.fn(),
+  reload: vi.fn(),
+  stop: vi.fn(),
+  find: vi.fn(),
+  stopFind: vi.fn(),
+  setBounds: vi.fn(),
+  setRouteActive: vi.fn(),
+  suspend: vi.fn(),
+  resume: vi.fn(),
+  resetSuspend: vi.fn(),
+  readPage: vi.fn(async () => ({ url: '', title: '', text: '', truncated: false, status: 'ok' as const })),
+  destroy: vi.fn(),
+};
+
+let capturedOptions: Record<string, unknown> = {};
+vi.mock('./view', () => ({
+  createBrowserHost: (options: Record<string, unknown>) => {
+    capturedOptions = options;
+    return hostStub;
+  },
+}));
+
+const { registerBrowserIpcHandlers } = await import('./ipc');
+
+function makeDb(): Database.Database {
+  const db = new Database(':memory:');
+  db.exec(`
+    create table browser_history (
+      url text not null, title text,
+      visited_at text not null default (datetime('now'))
+    );
+  `);
+  return db;
+}
+
+function invoke(channel: string, ...args: unknown[]): unknown {
+  const handler = handlers.get(channel);
+  if (!handler) throw new Error(`no handler for ${channel}`);
+  return handler({}, ...args);
+}
+
+let sent: { channel: string; payload: unknown }[] = [];
+function makeWindow() {
+  return { webContents: { send: (channel: string, payload: unknown) => sent.push({ channel, payload }) } };
+}
+
+beforeEach(() => {
+  handlers.clear();
+  sent = [];
+  vi.clearAllMocks();
+});
+
+describe('registerBrowserIpcHandlers', () => {
+  it('registers every channel the preload bridge calls', () => {
+    registerBrowserIpcHandlers(makeDb(), () => makeWindow() as never);
+    for (const channel of [
+      'browser:get-state',
+      'browser:open-tab',
+      'browser:close-tab',
+      'browser:activate-tab',
+      'browser:navigate',
+      'browser:go-back',
+      'browser:go-forward',
+      'browser:reload',
+      'browser:stop',
+      'browser:find',
+      'browser:stop-find',
+      'browser:set-bounds',
+      'browser:set-route-active',
+      'browser:suspend',
+      'browser:resume',
+      'browser:find-history',
+      'browser:clear-data',
+      'browser:download-response',
+    ]) {
+      expect(handlers.has(channel)).toBe(true);
+    }
+  });
+
+  it('delegates tab actions to the host', () => {
+    registerBrowserIpcHandlers(makeDb(), () => makeWindow() as never);
+    invoke('browser:open-tab', 'https://uncw.edu/');
+    invoke('browser:close-tab', 'tab-1');
+    invoke('browser:navigate', 'tab-1', 'uncw.edu');
+    expect(hostStub.openTab).toHaveBeenCalledWith('https://uncw.edu/');
+    expect(hostStub.closeTab).toHaveBeenCalledWith('tab-1');
+    expect(hostStub.navigate).toHaveBeenCalledWith('tab-1', 'uncw.edu');
+  });
+
+  it('passes bounds straight through to the host', () => {
+    registerBrowserIpcHandlers(makeDb(), () => makeWindow() as never);
+    invoke('browser:set-bounds', { x: 1, y: 2, width: 3, height: 4 });
+    expect(hostStub.setBounds).toHaveBeenCalledWith({ x: 1, y: 2, width: 3, height: 4 });
+  });
+
+  it('broadcasts state changes to the renderer', () => {
+    registerBrowserIpcHandlers(makeDb(), () => makeWindow() as never);
+    const onStateChange = capturedOptions.onStateChange as (state: unknown) => void;
+    onStateChange({ tabs: [], activeTabId: 'tab-1' });
+    expect(sent).toContainEqual({
+      channel: 'browser:state-changed',
+      payload: { tabs: [], activeTabId: 'tab-1' },
+    });
+  });
+
+  it('broadcasts find results to the renderer', () => {
+    registerBrowserIpcHandlers(makeDb(), () => makeWindow() as never);
+    const onFindResult = capturedOptions.onFindResult as (result: unknown) => void;
+    onFindResult({ activeMatchOrdinal: 2, matches: 9 });
+    expect(sent).toContainEqual({
+      channel: 'browser:find-result',
+      payload: { activeMatchOrdinal: 2, matches: 9 },
+    });
+  });
+
+  it('prunes history older than 90 days at registration', () => {
+    const db = makeDb();
+    db.prepare('insert into browser_history (url, title, visited_at) values (?, ?, ?)').run(
+      'https://ancient.test/',
+      'Ancient',
+      '2020-01-01 00:00:00'
+    );
+    db.prepare('insert into browser_history (url, title, visited_at) values (?, ?, ?)').run(
+      'https://fresh.test/',
+      'Fresh',
+      new Date().toISOString().replace('T', ' ').slice(0, 19)
+    );
+
+    registerBrowserIpcHandlers(db, () => makeWindow() as never);
+
+    const rows = db.prepare('select url from browser_history').all() as { url: string }[];
+    expect(rows.map((row) => row.url)).toEqual(['https://fresh.test/']);
+  });
+
+  it('returns history suggestions', () => {
+    const db = makeDb();
+    db.prepare('insert into browser_history (url, title, visited_at) values (?, ?, ?)').run(
+      'https://uncw.edu/registrar',
+      'Registrar',
+      new Date().toISOString().replace('T', ' ').slice(0, 19)
+    );
+    registerBrowserIpcHandlers(db, () => makeWindow() as never);
+    const results = invoke('browser:find-history', 'uncw') as { url: string }[];
+    expect(results.map((row) => row.url)).toEqual(['https://uncw.edu/registrar']);
+  });
+
+  it('clears history, storage and cache together', async () => {
+    const db = makeDb();
+    db.prepare('insert into browser_history (url, title) values (?, ?)').run('https://x.test/', 'X');
+    registerBrowserIpcHandlers(db, () => makeWindow() as never);
+
+    await invoke('browser:clear-data');
+
+    const count = db.prepare('select count(*) as n from browser_history').get() as { n: number };
+    expect(count.n).toBe(0);
+    expect(fakeSession.clearStorageData).toHaveBeenCalledOnce();
+    expect(fakeSession.clearCache).toHaveBeenCalledOnce();
+  });
+});
+
+describe('download confirmation round-trip', () => {
+  it('asks the renderer and resolves with the answer', async () => {
+    registerBrowserIpcHandlers(makeDb(), () => makeWindow() as never);
+    const confirmDownload = capturedOptions.confirmDownload as (
+      request: unknown
+    ) => Promise<boolean>;
+
+    const pending = confirmDownload({
+      filename: 'syllabus.pdf',
+      sizeBytes: 1024,
+      sourceUrl: 'https://uncw.edu/syllabus.pdf',
+    });
+
+    const request = sent.find((message) => message.channel === 'browser:download-request');
+    expect(request).toBeDefined();
+    const { id } = request!.payload as { id: string };
+    expect(id).toBeTruthy();
+
+    invoke('browser:download-response', id, true);
+    await expect(pending).resolves.toBe(true);
+  });
+
+  it('resolves false when the user declines', async () => {
+    registerBrowserIpcHandlers(makeDb(), () => makeWindow() as never);
+    const confirmDownload = capturedOptions.confirmDownload as (
+      request: unknown
+    ) => Promise<boolean>;
+
+    const pending = confirmDownload({ filename: 'a.pdf', sizeBytes: 1, sourceUrl: 'https://x.test/a.pdf' });
+    const { id } = sent.find((m) => m.channel === 'browser:download-request')!.payload as { id: string };
+    invoke('browser:download-response', id, false);
+    await expect(pending).resolves.toBe(false);
+  });
+
+  it('declines when there is no window to ask', async () => {
+    registerBrowserIpcHandlers(makeDb(), () => null);
+    const confirmDownload = capturedOptions.confirmDownload as (
+      request: unknown
+    ) => Promise<boolean>;
+    // A download that cannot be confirmed must never default to "yes".
+    await expect(
+      confirmDownload({ filename: 'a.pdf', sizeBytes: 1, sourceUrl: 'https://x.test/a.pdf' })
+    ).resolves.toBe(false);
+  });
+
+  it('ignores a response for an unknown id', () => {
+    registerBrowserIpcHandlers(makeDb(), () => makeWindow() as never);
+    expect(() => invoke('browser:download-response', 'nope', true)).not.toThrow();
+  });
+});
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run: `npm test -- src/main/browser/ipc.test.ts`
+Expected: FAIL — `Failed to resolve import "./ipc"`.
+
+- [ ] **Step 3: Implement the IPC module**
+
+Create `src/main/browser/ipc.ts`:
+
+```ts
+import { app, ipcMain, session, type BrowserWindow } from 'electron';
+import { join } from 'node:path';
+import type Database from 'better-sqlite3';
+import { logError } from '../log';
+import type { DownloadRequest } from './downloads';
+import type { ViewportRect } from './geometry';
+import { BROWSER_PARTITION } from './handlers';
+import { clearHistory, findHistory, historyCutoff, pruneHistory } from './history';
+import { createBrowserHost, type BrowserHost, type FindResult } from './view';
+
+export function registerBrowserIpcHandlers(
+  db: Database.Database,
+  getWindow: () => BrowserWindow | null
+): BrowserHost {
+  // Bound on every launch so the table cannot grow without limit. Cheap: one
+  // indexed DELETE against a table that only ever holds ~90 days of rows.
+  try {
+    pruneHistory(db, historyCutoff());
+  } catch (error) {
+    logError('browser:pruneHistory', error);
+  }
+
+  // Pending download confirmations, keyed by request id. Mirrors the
+  // ai:confirm-request / ai:confirm-response pair rather than inventing a
+  // second idiom for the same shape of problem.
+  const pendingDownloads = new Map<string, (approved: boolean) => void>();
+  let downloadCounter = 0;
+
+  function confirmDownload(request: DownloadRequest): Promise<boolean> {
+    const window = getWindow();
+    // No window means nobody can answer. A download that cannot be confirmed
+    // must never default to "yes".
+    if (window === null) return Promise.resolve(false);
+
+    downloadCounter += 1;
+    const id = `download-${downloadCounter}`;
+    return new Promise<boolean>((resolve) => {
+      pendingDownloads.set(id, resolve);
+      window.webContents.send('browser:download-request', { id, ...request });
+    });
+  }
+
+  const host = createBrowserHost({
+    window: getWindow() as never,
+    db,
+    downloadsDir: app.getPath('downloads'),
+    onStateChange: (state) => getWindow()?.webContents.send('browser:state-changed', state),
+    confirmDownload,
+    onFindResult: (result: FindResult) => getWindow()?.webContents.send('browser:find-result', result),
+  });
+
+  ipcMain.handle('browser:get-state', () => host.getState());
+  ipcMain.handle('browser:open-tab', (_event, url: string) => host.openTab(url));
+  ipcMain.handle('browser:close-tab', (_event, id: string) => host.closeTab(id));
+  ipcMain.handle('browser:activate-tab', (_event, id: string) => host.activateTab(id));
+  ipcMain.handle('browser:navigate', (_event, id: string, input: string) => host.navigate(id, input));
+  ipcMain.handle('browser:go-back', (_event, id: string) => host.goBack(id));
+  ipcMain.handle('browser:go-forward', (_event, id: string) => host.goForward(id));
+  ipcMain.handle('browser:reload', (_event, id: string) => host.reload(id));
+  ipcMain.handle('browser:stop', (_event, id: string) => host.stop(id));
+  ipcMain.handle('browser:find', (_event, id: string, text: string) => host.find(id, text));
+  ipcMain.handle('browser:stop-find', (_event, id: string) => host.stopFind(id));
+
+  ipcMain.handle('browser:set-bounds', (_event, rect: ViewportRect) => host.setBounds(rect));
+  ipcMain.handle('browser:set-route-active', (_event, active: boolean) => host.setRouteActive(active));
+  ipcMain.handle('browser:suspend', () => host.suspend());
+  ipcMain.handle('browser:resume', () => host.resume());
+
+  ipcMain.handle('browser:find-history', (_event, prefix: string) => findHistory(db, prefix));
+
+  ipcMain.handle('browser:clear-data', async () => {
+    clearHistory(db);
+    const browserSession = session.fromPartition(BROWSER_PARTITION);
+    // Cookies and site data are persisted on disk by this phase, so "clear"
+    // has to mean all three or it is a false promise.
+    await browserSession.clearStorageData();
+    await browserSession.clearCache();
+    return { ok: true };
+  });
+
+  ipcMain.handle('browser:download-response', (_event, id: string, approved: boolean) => {
+    const resolve = pendingDownloads.get(id);
+    if (!resolve) return;
+    pendingDownloads.delete(id);
+    resolve(approved);
+  });
+
+  return host;
+}
+```
+
+Note the unused `join` import must be removed if lint flags it — it is listed here only because `app.getPath('downloads')` already returns an absolute directory, so no joining is needed. **Remove the `join` import.**
+
+- [ ] **Step 4: Run the tests to verify they pass**
+
+Run: `npm test -- src/main/browser/ipc.test.ts`
+Expected: PASS 12/12
+
+- [ ] **Step 5: Add the preload bridge**
+
+In `src/preload/index.ts`, add these interfaces beside the existing ones:
+
+```ts
+interface BrowserTab {
+  id: string;
+  url: string;
+  title: string;
+  loading: boolean;
+  canGoBack: boolean;
+  canGoForward: boolean;
+  error: { code: number; description: string } | null;
+}
+
+interface BrowserState {
+  tabs: BrowserTab[];
+  activeTabId: string;
+}
+
+interface BrowserDownloadRequest {
+  id: string;
+  filename: string;
+  sizeBytes: number;
+  sourceUrl: string;
+}
+
+interface BrowserFindResult {
+  activeMatchOrdinal: number;
+  matches: number;
+}
+
+interface BrowserRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+interface BrowserHistoryEntry {
+  url: string;
+  title: string | null;
+  visitedAt: string;
+}
+```
+
+and add this property to the `smartlife` object, after `calendar`:
+
+```ts
+  browser: {
+    getState: (): Promise<BrowserState> => ipcRenderer.invoke('browser:get-state'),
+    // Exposed to the app, deliberately not to the AI: Phase 3b opens a Canvas
+    // assignment URL here. AI-driven navigation is Phase 5b.
+    openTab: (url: string): Promise<string> => ipcRenderer.invoke('browser:open-tab', url),
+    closeTab: (id: string): Promise<void> => ipcRenderer.invoke('browser:close-tab', id),
+    activateTab: (id: string): Promise<void> => ipcRenderer.invoke('browser:activate-tab', id),
+    navigate: (id: string, input: string): Promise<void> =>
+      ipcRenderer.invoke('browser:navigate', id, input),
+    goBack: (id: string): Promise<void> => ipcRenderer.invoke('browser:go-back', id),
+    goForward: (id: string): Promise<void> => ipcRenderer.invoke('browser:go-forward', id),
+    reload: (id: string): Promise<void> => ipcRenderer.invoke('browser:reload', id),
+    stop: (id: string): Promise<void> => ipcRenderer.invoke('browser:stop', id),
+    find: (id: string, text: string): Promise<void> => ipcRenderer.invoke('browser:find', id, text),
+    stopFind: (id: string): Promise<void> => ipcRenderer.invoke('browser:stop-find', id),
+    setBounds: (rect: BrowserRect): Promise<void> => ipcRenderer.invoke('browser:set-bounds', rect),
+    setRouteActive: (active: boolean): Promise<void> =>
+      ipcRenderer.invoke('browser:set-route-active', active),
+    suspend: (): Promise<void> => ipcRenderer.invoke('browser:suspend'),
+    resume: (): Promise<void> => ipcRenderer.invoke('browser:resume'),
+    findHistory: (prefix: string): Promise<BrowserHistoryEntry[]> =>
+      ipcRenderer.invoke('browser:find-history', prefix),
+    clearData: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('browser:clear-data'),
+    respondToDownload: (id: string, approved: boolean): Promise<void> =>
+      ipcRenderer.invoke('browser:download-response', id, approved),
+    onStateChanged: (cb: (state: BrowserState) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, state: BrowserState): void => cb(state);
+      ipcRenderer.on('browser:state-changed', listener);
+      return () => ipcRenderer.removeListener('browser:state-changed', listener);
+    },
+    onDownloadRequest: (cb: (request: BrowserDownloadRequest) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, request: BrowserDownloadRequest): void =>
+        cb(request);
+      ipcRenderer.on('browser:download-request', listener);
+      return () => ipcRenderer.removeListener('browser:download-request', listener);
+    },
+    onFindResult: (cb: (result: BrowserFindResult) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, result: BrowserFindResult): void => cb(result);
+      ipcRenderer.on('browser:find-result', listener);
+      return () => ipcRenderer.removeListener('browser:find-result', listener);
+    },
+  },
+```
+
+- [ ] **Step 6: Wire it into the main process**
+
+In `src/main/index.ts`:
+
+Add the import beside the other feature imports:
+
+```ts
+import { registerBrowserIpcHandlers } from './browser/ipc';
+import type { BrowserHost } from './browser/view';
+```
+
+Add the module-scoped handle beside `canvasScheduler` / `calendarScheduler`:
+
+```ts
+  let browserHost: BrowserHost | null = null;
+```
+
+In `loadContent`, register it after the calendar handlers — **after** `mainWindow` has been assigned, since the host attaches views to the window's `contentView`:
+
+```ts
+        calendarScheduler = startCalendarScheduler(dbConnection, () => mainWindow);
+        registerCalendarIpcHandlers(dbConnection, () => mainWindow, calendarScheduler);
+        browserHost = registerBrowserIpcHandlers(dbConnection, () => mainWindow);
+        handlersRegistered = true;
+```
+
+In the `before-quit` handler, tear the views down before the database closes:
+
+```ts
+  app.on('before-quit', () => {
+    canvasScheduler?.stop();
+    calendarScheduler?.stop();
+    browserHost?.destroy();
+    dbConnection?.close();
+  });
+```
+
+- [ ] **Step 7: Typecheck and run the whole suite**
+
+Run: `npm run typecheck`
+Expected: no errors. Adding `browser` to the preload object widens `SmartlifeApi`, so **any test that builds a complete `window.smartlife` literal will now fail to typecheck.** Phase 4 hit exactly this and it is expected: add a minimal `browser` stub block to those mocks (`src/renderer/src/App.test.tsx` and `src/renderer/src/theme/ThemeProvider.test.tsx` were the two in Phase 4). Add stubs only — do not change any assertion.
+
+Run: `npm test && npm run lint`
+Expected: PASS, no lint errors.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add src/main/browser/ipc.ts src/main/browser/ipc.test.ts src/preload/index.ts src/main/index.ts src/renderer/src/App.test.tsx src/renderer/src/theme/ThemeProvider.test.tsx
+git commit -m "Wire browser IPC, preload bridge, and main-process boot"
+```
+
+---
+
+### Task 11: Renderer types, state hook, and bounds reporting
+
+**Files:**
+- Create: `src/renderer/src/browser/types.ts`
+- Create: `src/renderer/src/browser/useBrowser.ts`
+- Create: `src/renderer/src/browser/useBrowser.test.tsx`
+- Create: `src/renderer/src/browser/ViewportSlot.tsx`
+- Create: `src/renderer/src/browser/ViewportSlot.test.tsx`
+
+**Interfaces:**
+- Consumes: `window.smartlife.browser` (Task 10).
+- Produces:
+  - `interface BrowserTab`, `BrowserState`, `BrowserDownloadRequest`, `BrowserFindResult`, `BrowserHistoryEntry`
+  - `BROWSER_ACCENT: string` (`'#2DD4BF'`, copied from `nav/sectionThemes.ts`)
+  - `useBrowser(): { state, activeTab, openTab, closeTab, activateTab, navigate, goBack, goForward, reload, stop }`
+  - `<ViewportSlot />`
+
+**The one subtle thing here:** `ResizeObserver` fires on size changes, not position changes. The browser viewport can also *move* without resizing — most obviously if the surrounding `<main>` scrolls. `Browser.tsx` (Task 12) therefore fills the height and does not scroll, and `ViewportSlot` additionally listens for window resize. If the native view ever appears offset from its placeholder, this is the first place to look.
+
+- [ ] **Step 1: Write the failing tests**
+
+Create `src/renderer/src/browser/useBrowser.test.tsx`:
+
+```tsx
+import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { act, renderHook, waitFor } from '@testing-library/react';
+import { useBrowser } from './useBrowser';
+import type { BrowserState } from './types';
+
+const initialState: BrowserState = {
+  tabs: [
+    {
+      id: 'tab-1',
+      url: 'about:blank',
+      title: 'New Tab',
+      loading: false,
+      canGoBack: false,
+      canGoForward: false,
+      error: null,
+    },
+  ],
+  activeTabId: 'tab-1',
+};
+
+let stateListener: ((state: BrowserState) => void) | null = null;
+const unsubscribe = vi.fn();
+const browserApi = {
+  getState: vi.fn(async () => initialState),
+  openTab: vi.fn(async () => 'tab-2'),
+  closeTab: vi.fn(async () => {}),
+  activateTab: vi.fn(async () => {}),
+  navigate: vi.fn(async () => {}),
+  goBack: vi.fn(async () => {}),
+  goForward: vi.fn(async () => {}),
+  reload: vi.fn(async () => {}),
+  stop: vi.fn(async () => {}),
+  setRouteActive: vi.fn(async () => {}),
+  onStateChanged: vi.fn((cb: (state: BrowserState) => void) => {
+    stateListener = cb;
+    return unsubscribe;
+  }),
+};
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  stateListener = null;
+  (window as unknown as { smartlife: unknown }).smartlife = { browser: browserApi };
+});
+
+describe('useBrowser', () => {
+  it('loads the initial state', async () => {
+    const { result } = renderHook(() => useBrowser());
+    await waitFor(() => expect(result.current.state).not.toBeNull());
+    expect(result.current.activeTab?.id).toBe('tab-1');
+  });
+
+  it('marks the browser route active on mount and inactive on unmount', async () => {
+    const { unmount } = renderHook(() => useBrowser());
+    await waitFor(() => expect(browserApi.setRouteActive).toHaveBeenCalledWith(true));
+    unmount();
+    expect(browserApi.setRouteActive).toHaveBeenLastCalledWith(false);
+  });
+
+  it('applies pushed state updates', async () => {
+    const { result } = renderHook(() => useBrowser());
+    await waitFor(() => expect(result.current.state).not.toBeNull());
+
+    act(() => {
+      stateListener?.({
+        tabs: [{ ...initialState.tabs[0], title: 'Registrar', url: 'https://uncw.edu/' }],
+        activeTabId: 'tab-1',
+      });
+    });
+
+    expect(result.current.activeTab?.title).toBe('Registrar');
+  });
+
+  it('unsubscribes on unmount', async () => {
+    const { unmount } = renderHook(() => useBrowser());
+    await waitFor(() => expect(browserApi.onStateChanged).toHaveBeenCalled());
+    unmount();
+    expect(unsubscribe).toHaveBeenCalled();
+  });
+
+  it('navigates the active tab without the caller knowing its id', async () => {
+    const { result } = renderHook(() => useBrowser());
+    await waitFor(() => expect(result.current.state).not.toBeNull());
+    await act(async () => {
+      await result.current.navigate('uncw.edu');
+    });
+    expect(browserApi.navigate).toHaveBeenCalledWith('tab-1', 'uncw.edu');
+  });
+
+  it('exposes null activeTab when the active id is missing', async () => {
+    browserApi.getState.mockResolvedValueOnce({ tabs: [], activeTabId: 'gone' });
+    const { result } = renderHook(() => useBrowser());
+    await waitFor(() => expect(result.current.state).not.toBeNull());
+    expect(result.current.activeTab).toBeNull();
+  });
+});
+```
+
+Create `src/renderer/src/browser/ViewportSlot.test.tsx`:
+
+```tsx
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { render } from '@testing-library/react';
+import { ViewportSlot } from './ViewportSlot';
+
+const setBounds = vi.fn(async () => {});
+let observerCallback: (() => void) | null = null;
+
+class FakeResizeObserver {
+  constructor(callback: () => void) {
+    observerCallback = callback;
+  }
+  observe(): void {}
+  disconnect(): void {}
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  observerCallback = null;
+  (window as unknown as { ResizeObserver: unknown }).ResizeObserver = FakeResizeObserver;
+  (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = FakeResizeObserver;
+  (window as unknown as { smartlife: unknown }).smartlife = { browser: { setBounds } };
+});
+
+describe('ViewportSlot', () => {
+  it('reports its rectangle on mount', () => {
+    render(<ViewportSlot />);
+    expect(setBounds).toHaveBeenCalledOnce();
+    expect(setBounds).toHaveBeenCalledWith(
+      expect.objectContaining({
+        x: expect.any(Number),
+        y: expect.any(Number),
+        width: expect.any(Number),
+        height: expect.any(Number),
+      })
+    );
+  });
+
+  it('reports again when the element resizes', () => {
+    render(<ViewportSlot />);
+    setBounds.mockClear();
+    observerCallback?.();
+    expect(setBounds).toHaveBeenCalledOnce();
+  });
+
+  it('reports again when the window resizes', () => {
+    render(<ViewportSlot />);
+    setBounds.mockClear();
+    window.dispatchEvent(new Event('resize'));
+    expect(setBounds).toHaveBeenCalledOnce();
+  });
+});
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `npm test -- src/renderer/src/browser/`
+Expected: FAIL — imports unresolved.
+
+- [ ] **Step 3: Create the types**
+
+Create `src/renderer/src/browser/types.ts`:
+
+```ts
+export interface BrowserTab {
+  id: string;
+  url: string;
+  title: string;
+  loading: boolean;
+  canGoBack: boolean;
+  canGoForward: boolean;
+  error: { code: number; description: string } | null;
+}
+
+export interface BrowserState {
+  tabs: BrowserTab[];
+  activeTabId: string;
+}
+
+export interface BrowserDownloadRequest {
+  id: string;
+  filename: string;
+  sizeBytes: number;
+  sourceUrl: string;
+}
+
+export interface BrowserFindResult {
+  activeMatchOrdinal: number;
+  matches: number;
+}
+
+export interface BrowserHistoryEntry {
+  url: string;
+  title: string | null;
+  visitedAt: string;
+}
+
+/** The browser section's own accent, copied from nav/sectionThemes.ts. */
+export const BROWSER_ACCENT = '#2DD4BF';
+```
+
+- [ ] **Step 4: Implement the hook**
+
+Create `src/renderer/src/browser/useBrowser.ts`:
+
+```ts
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { BrowserState, BrowserTab } from './types';
+
+export function useBrowser(): {
+  state: BrowserState | null;
+  activeTab: BrowserTab | null;
+  openTab: (url: string) => Promise<void>;
+  closeTab: (id: string) => Promise<void>;
+  activateTab: (id: string) => Promise<void>;
+  navigate: (input: string) => Promise<void>;
+  goBack: () => Promise<void>;
+  goForward: () => Promise<void>;
+  reload: () => Promise<void>;
+  stop: () => Promise<void>;
+} {
+  const [state, setState] = useState<BrowserState | null>(null);
+
+  useEffect(() => {
+    void window.smartlife.browser.getState().then(setState).catch(() => {});
+    return window.smartlife.browser.onStateChanged(setState);
+  }, []);
+
+  // The native view must only be on screen while this route is. Without the
+  // cleanup the page would float above every other section.
+  useEffect(() => {
+    void window.smartlife.browser.setRouteActive(true);
+    return () => {
+      void window.smartlife.browser.setRouteActive(false);
+    };
+  }, []);
+
+  const activeTab = useMemo(
+    () => state?.tabs.find((tab) => tab.id === state.activeTabId) ?? null,
+    [state]
+  );
+
+  const activeId = activeTab?.id ?? null;
+
+  const openTab = useCallback(async (url: string) => {
+    await window.smartlife.browser.openTab(url);
+  }, []);
+
+  const closeTab = useCallback(async (id: string) => {
+    await window.smartlife.browser.closeTab(id);
+  }, []);
+
+  const activateTab = useCallback(async (id: string) => {
+    await window.smartlife.browser.activateTab(id);
+  }, []);
+
+  const navigate = useCallback(
+    async (input: string) => {
+      if (activeId === null) return;
+      await window.smartlife.browser.navigate(activeId, input);
+    },
+    [activeId]
+  );
+
+  const goBack = useCallback(async () => {
+    if (activeId !== null) await window.smartlife.browser.goBack(activeId);
+  }, [activeId]);
+
+  const goForward = useCallback(async () => {
+    if (activeId !== null) await window.smartlife.browser.goForward(activeId);
+  }, [activeId]);
+
+  const reload = useCallback(async () => {
+    if (activeId !== null) await window.smartlife.browser.reload(activeId);
+  }, [activeId]);
+
+  const stop = useCallback(async () => {
+    if (activeId !== null) await window.smartlife.browser.stop(activeId);
+  }, [activeId]);
+
+  return { state, activeTab, openTab, closeTab, activateTab, navigate, goBack, goForward, reload, stop };
+}
+```
+
+- [ ] **Step 5: Implement the viewport slot**
+
+Create `src/renderer/src/browser/ViewportSlot.tsx`:
+
+```tsx
+import { useEffect, useRef } from 'react';
+
+/**
+ * An empty placeholder whose only job is to tell the main process where the
+ * native WebContentsView should sit.
+ *
+ * The view is not in the React tree -- it is composited above it -- so this
+ * div reserves the space and reports its rectangle. ResizeObserver covers size
+ * changes (window resize, sidebar collapse); the window resize listener covers
+ * the cases where the element moves without changing size. Browser.tsx fills
+ * the available height and does not scroll, which is what keeps those two
+ * signals sufficient.
+ */
+export function ViewportSlot(): React.JSX.Element {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const element = ref.current;
+    if (element === null) return;
+
+    const report = (): void => {
+      const rect = element.getBoundingClientRect();
+      void window.smartlife.browser
+        .setBounds({ x: rect.x, y: rect.y, width: rect.width, height: rect.height })
+        .catch(() => {});
+    };
+
+    report();
+    const observer = new ResizeObserver(report);
+    observer.observe(element);
+    window.addEventListener('resize', report);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', report);
+    };
+  }, []);
+
+  return <div ref={ref} className="min-h-0 flex-1" role="presentation" />;
+}
+```
+
+- [ ] **Step 6: Run the tests to verify they pass**
+
+Run: `npm test -- src/renderer/src/browser/`
+Expected: PASS 6/6 and 3/3
+
+If `ResizeObserver` is undefined outside these tests, that is fine — only `ViewportSlot` uses it and its test provides the stub.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add src/renderer/src/browser/types.ts src/renderer/src/browser/useBrowser.ts src/renderer/src/browser/useBrowser.test.tsx src/renderer/src/browser/ViewportSlot.tsx src/renderer/src/browser/ViewportSlot.test.tsx
+git commit -m "Add renderer browser types, state hook, and bounds-reporting viewport slot"
+```
+
+---
+
+### Task 12: Browser chrome and route
+
+**Files:**
+- Create: `src/renderer/src/browser/TabStrip.tsx`
+- Create: `src/renderer/src/browser/AddressBar.tsx`
+- Create: `src/renderer/src/browser/FindBar.tsx`
+- Create: `src/renderer/src/routes/Browser.tsx`
+- Create: `src/renderer/src/routes/Browser.test.tsx`
+- Modify: `src/renderer/src/App.tsx`
+
+**Interfaces:**
+- Consumes: `useBrowser`, `ViewportSlot`, `BrowserTab`, `BrowserFindResult`, `BROWSER_ACCENT` (Task 11).
+- Produces: `<Browser />` at `/browser`.
+
+The `browser` slug and its `#2DD4BF` theme already exist in `NAV_SECTIONS` and `sectionThemes.ts`; this task replaces the `ComingSoon` placeholder with the real route.
+
+- [ ] **Step 1: Write the failing test**
+
+Create `src/renderer/src/routes/Browser.test.tsx`:
+
+```tsx
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
+import { Browser } from './Browser';
+import type { BrowserState } from '../browser/types';
+
+const state: BrowserState = {
+  tabs: [
+    {
+      id: 'tab-1',
+      url: 'https://uncw.edu/registrar',
+      title: 'Registrar',
+      loading: false,
+      canGoBack: true,
+      canGoForward: false,
+      error: null,
+    },
+    {
+      id: 'tab-2',
+      url: 'about:blank',
+      title: 'New Tab',
+      loading: false,
+      canGoBack: false,
+      canGoForward: false,
+      error: null,
+    },
+  ],
+  activeTabId: 'tab-1',
+};
+
+const browserApi = {
+  getState: vi.fn(async () => state),
+  openTab: vi.fn(async () => 'tab-3'),
+  closeTab: vi.fn(async () => {}),
+  activateTab: vi.fn(async () => {}),
+  navigate: vi.fn(async () => {}),
+  goBack: vi.fn(async () => {}),
+  goForward: vi.fn(async () => {}),
+  reload: vi.fn(async () => {}),
+  stop: vi.fn(async () => {}),
+  find: vi.fn(async () => {}),
+  stopFind: vi.fn(async () => {}),
+  setBounds: vi.fn(async () => {}),
+  setRouteActive: vi.fn(async () => {}),
+  findHistory: vi.fn(async () => []),
+  onStateChanged: vi.fn(() => () => {}),
+  onFindResult: vi.fn(() => () => {}),
+};
+
+class FakeResizeObserver {
+  observe(): void {}
+  disconnect(): void {}
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = FakeResizeObserver;
+  (window as unknown as { smartlife: unknown }).smartlife = { browser: browserApi };
+});
+
+function renderBrowser() {
+  return render(
+    <MemoryRouter>
+      <Browser />
+    </MemoryRouter>
+  );
+}
+
+describe('Browser route', () => {
+  it('lists the open tabs', async () => {
+    renderBrowser();
+    const tabs = await screen.findByRole('tablist', { name: 'Open tabs' });
+    expect(within(tabs).getByRole('tab', { name: /Registrar/ })).toBeInTheDocument();
+    expect(within(tabs).getByRole('tab', { name: /New Tab/ })).toBeInTheDocument();
+  });
+
+  it('marks the active tab as selected', async () => {
+    renderBrowser();
+    const active = await screen.findByRole('tab', { name: /Registrar/ });
+    expect(active).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('shows the active tab url in the address bar', async () => {
+    renderBrowser();
+    await waitFor(() =>
+      expect(screen.getByRole('textbox', { name: 'Address' })).toHaveValue('https://uncw.edu/registrar')
+    );
+  });
+
+  it('navigates the active tab on submit', async () => {
+    const user = userEvent.setup();
+    renderBrowser();
+    const input = await screen.findByRole('textbox', { name: 'Address' });
+    await user.clear(input);
+    await user.type(input, 'canvas.uncw.edu{Enter}');
+    expect(browserApi.navigate).toHaveBeenCalledWith('tab-1', 'canvas.uncw.edu');
+  });
+
+  it('opens a new tab', async () => {
+    const user = userEvent.setup();
+    renderBrowser();
+    await user.click(await screen.findByRole('button', { name: 'New tab' }));
+    expect(browserApi.openTab).toHaveBeenCalledWith('about:blank');
+  });
+
+  it('closes a tab without activating it', async () => {
+    const user = userEvent.setup();
+    renderBrowser();
+    await user.click(await screen.findByRole('button', { name: 'Close New Tab' }));
+    expect(browserApi.closeTab).toHaveBeenCalledWith('tab-2');
+    expect(browserApi.activateTab).not.toHaveBeenCalled();
+  });
+
+  it('switches tabs on click', async () => {
+    const user = userEvent.setup();
+    renderBrowser();
+    await user.click(await screen.findByRole('tab', { name: /New Tab/ }));
+    expect(browserApi.activateTab).toHaveBeenCalledWith('tab-2');
+  });
+
+  it('disables forward when there is no forward history', async () => {
+    renderBrowser();
+    expect(await screen.findByRole('button', { name: 'Forward' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Back' })).toBeEnabled();
+  });
+
+  it('surfaces a load error instead of leaving the viewport blank', async () => {
+    browserApi.getState.mockResolvedValueOnce({
+      ...state,
+      tabs: [{ ...state.tabs[0], error: { code: -105, description: 'ERR_NAME_NOT_RESOLVED' } }, state.tabs[1]],
+    });
+    renderBrowser();
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('ERR_NAME_NOT_RESOLVED');
+    expect(alert).toHaveTextContent('-105');
+  });
+
+  it('retries a failed load', async () => {
+    browserApi.getState.mockResolvedValueOnce({
+      ...state,
+      tabs: [{ ...state.tabs[0], error: { code: -105, description: 'ERR_NAME_NOT_RESOLVED' } }, state.tabs[1]],
+    });
+    const user = userEvent.setup();
+    renderBrowser();
+    await user.click(await screen.findByRole('button', { name: 'Try again' }));
+    expect(browserApi.reload).toHaveBeenCalledWith('tab-1');
+  });
+
+  it('opens and closes find-in-page', async () => {
+    const user = userEvent.setup();
+    renderBrowser();
+    await user.click(await screen.findByRole('button', { name: 'Find in page' }));
+    const find = screen.getByRole('textbox', { name: 'Find in page' });
+    await user.type(find, 'tuition');
+    expect(browserApi.find).toHaveBeenCalledWith('tab-1', 'tuition');
+
+    await user.click(screen.getByRole('button', { name: 'Close find' }));
+    expect(browserApi.stopFind).toHaveBeenCalledWith('tab-1');
+  });
+});
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run: `npm test -- src/renderer/src/routes/Browser.test.tsx`
+Expected: FAIL — `Failed to resolve import "./Browser"`.
+
+- [ ] **Step 3: Implement the tab strip**
+
+Create `src/renderer/src/browser/TabStrip.tsx`:
+
+```tsx
+import type { BrowserTab } from './types';
+
+export function TabStrip({
+  tabs,
+  activeTabId,
+  onActivate,
+  onClose,
+  onNewTab,
+}: {
+  tabs: BrowserTab[];
+  activeTabId: string;
+  onActivate: (id: string) => void;
+  onClose: (id: string) => void;
+  onNewTab: () => void;
+}): React.JSX.Element {
+  return (
+    <div className="flex items-center gap-1" role="tablist" aria-label="Open tabs">
+      {tabs.map((tab) => {
+        const isActive = tab.id === activeTabId;
+        const label = tab.loading && tab.title.length === 0 ? 'Loading…' : tab.title;
+        return (
+          <div key={tab.id} className="flex min-w-0 items-center">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={isActive}
+              onClick={() => onActivate(tab.id)}
+              title={tab.url}
+              className="max-w-40 truncate rounded-t px-3 py-1.5 text-xs"
+              style={{
+                color: 'var(--color-text)',
+                backgroundColor: isActive ? 'var(--color-surface)' : 'transparent',
+                borderBottom: isActive ? '2px solid #2DD4BF' : '2px solid transparent',
+              }}
+            >
+              {label}
+            </button>
+            <button
+              type="button"
+              aria-label={`Close ${label}`}
+              onClick={() => onClose(tab.id)}
+              className="rounded px-1 text-xs"
+              style={{ color: 'var(--color-text-muted)' }}
+            >
+              ×
+            </button>
+          </div>
+        );
+      })}
+      <button
+        type="button"
+        aria-label="New tab"
+        onClick={onNewTab}
+        className="rounded px-2 py-1 text-sm"
+        style={{ color: 'var(--color-text-muted)' }}
+      >
+        +
+      </button>
+    </div>
+  );
+}
+```
+
+- [ ] **Step 4: Implement the address bar**
+
+Create `src/renderer/src/browser/AddressBar.tsx`:
+
+```tsx
+import { useEffect, useState } from 'react';
+import type { BrowserHistoryEntry, BrowserTab } from './types';
+
+const BUTTON_STYLE = {
+  border: '1px solid var(--color-border)',
+  color: 'var(--color-text)',
+} as const;
+
+export function AddressBar({
+  tab,
+  onNavigate,
+  onBack,
+  onForward,
+  onReload,
+  onStop,
+  onToggleFind,
+}: {
+  tab: BrowserTab;
+  onNavigate: (input: string) => void;
+  onBack: () => void;
+  onForward: () => void;
+  onReload: () => void;
+  onStop: () => void;
+  onToggleFind: () => void;
+}): React.JSX.Element {
+  const [draft, setDraft] = useState(tab.url);
+  const [suggestions, setSuggestions] = useState<BrowserHistoryEntry[]>([]);
+  const [focused, setFocused] = useState(false);
+
+  // Follow the tab's real url whenever it changes underneath us -- a redirect,
+  // a link click, or a tab switch -- but never while the user is mid-edit.
+  useEffect(() => {
+    if (!focused) setDraft(tab.url);
+  }, [tab.url, focused]);
+
+  useEffect(() => {
+    if (!focused || draft.trim().length === 0) {
+      setSuggestions([]);
+      return;
+    }
+    let cancelled = false;
+    void window.smartlife.browser
+      .findHistory(draft)
+      .then((entries) => {
+        if (!cancelled) setSuggestions(entries as BrowserHistoryEntry[]);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [draft, focused]);
+
+  return (
+    <div className="relative flex items-center gap-1">
+      <button type="button" aria-label="Back" disabled={!tab.canGoBack} onClick={onBack} className="rounded px-2 py-1 text-sm disabled:opacity-40" style={BUTTON_STYLE}>
+        ‹
+      </button>
+      <button type="button" aria-label="Forward" disabled={!tab.canGoForward} onClick={onForward} className="rounded px-2 py-1 text-sm disabled:opacity-40" style={BUTTON_STYLE}>
+        ›
+      </button>
+      <button type="button" aria-label={tab.loading ? 'Stop' : 'Reload'} onClick={tab.loading ? onStop : onReload} className="rounded px-2 py-1 text-sm" style={BUTTON_STYLE}>
+        {tab.loading ? '×' : '⟳'}
+      </button>
+
+      <form
+        className="flex-1"
+        onSubmit={(event) => {
+          event.preventDefault();
+          setSuggestions([]);
+          onNavigate(draft);
+        }}
+      >
+        <input
+          type="text"
+          aria-label="Address"
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => {
+            setFocused(false);
+            setSuggestions([]);
+          }}
+          className="w-full rounded-md px-3 py-1.5 text-sm"
+          style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text)', border: '1px solid var(--color-border)' }}
+        />
+      </form>
+
+      <button type="button" aria-label="Find in page" onClick={onToggleFind} className="rounded px-2 py-1 text-sm" style={BUTTON_STYLE}>
+        ⌕
+      </button>
+
+      {suggestions.length > 0 && (
+        <ul
+          className="absolute left-0 right-0 top-full z-10 mt-1 max-h-60 overflow-auto rounded-md"
+          style={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
+          aria-label="History suggestions"
+        >
+          {suggestions.map((entry) => (
+            <li key={`${entry.url}-${entry.visitedAt}`}>
+              <button
+                type="button"
+                // onMouseDown, not onClick: the input's onBlur fires first and
+                // clears the list, so a click would never land.
+                onMouseDown={() => {
+                  setSuggestions([]);
+                  onNavigate(entry.url);
+                }}
+                className="block w-full truncate px-3 py-1.5 text-left text-xs"
+                style={{ color: 'var(--color-text)' }}
+              >
+                {entry.title ?? entry.url}
+                <span style={{ color: 'var(--color-text-muted)' }}> — {entry.url}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+```
+
+- [ ] **Step 5: Implement the find bar**
+
+Create `src/renderer/src/browser/FindBar.tsx`:
+
+```tsx
+import { useEffect, useState } from 'react';
+import type { BrowserFindResult } from './types';
+
+export function FindBar({
+  onFind,
+  onClose,
+}: {
+  onFind: (text: string) => void;
+  onClose: () => void;
+}): React.JSX.Element {
+  const [text, setText] = useState('');
+  const [result, setResult] = useState<BrowserFindResult | null>(null);
+
+  useEffect(() => window.smartlife.browser.onFindResult(setResult), []);
+
+  return (
+    <div className="flex items-center gap-2 px-2 py-1">
+      <input
+        type="text"
+        aria-label="Find in page"
+        autoFocus
+        value={text}
+        onChange={(event) => {
+          setText(event.target.value);
+          onFind(event.target.value);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') onClose();
+        }}
+        className="rounded-md px-2 py-1 text-sm"
+        style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text)', border: '1px solid var(--color-border)' }}
+      />
+      {result !== null && result.matches > 0 && (
+        <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+          {result.activeMatchOrdinal} of {result.matches}
+        </span>
+      )}
+      {result !== null && result.matches === 0 && text.length > 0 && (
+        <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+          No matches
+        </span>
+      )}
+      <button type="button" aria-label="Close find" onClick={onClose} className="rounded px-2 py-1 text-xs" style={{ color: 'var(--color-text-muted)' }}>
+        ×
+      </button>
+    </div>
+  );
+}
+```
+
+- [ ] **Step 6: Implement the route**
+
+Create `src/renderer/src/routes/Browser.tsx`:
+
+```tsx
+import { useState } from 'react';
+import { AddressBar } from '../browser/AddressBar';
+import { FindBar } from '../browser/FindBar';
+import { TabStrip } from '../browser/TabStrip';
+import { ViewportSlot } from '../browser/ViewportSlot';
+import { useBrowser } from '../browser/useBrowser';
+
+export function Browser(): React.JSX.Element {
+  const { state, activeTab, openTab, closeTab, activateTab, navigate, goBack, goForward, reload, stop } =
+    useBrowser();
+  const [findOpen, setFindOpen] = useState(false);
+
+  // h-full with no overflow: the native view is positioned from this element's
+  // rectangle, and a scrolling container would move it out from under itself.
+  return (
+    <div className="flex h-full flex-col overflow-hidden">
+      {state !== null && (
+        <TabStrip
+          tabs={state.tabs}
+          activeTabId={state.activeTabId}
+          onActivate={(id) => void activateTab(id)}
+          onClose={(id) => void closeTab(id)}
+          onNewTab={() => void openTab('about:blank')}
+        />
+      )}
+
+      {activeTab !== null && (
+        <div className="px-2 py-1">
+          <AddressBar
+            tab={activeTab}
+            onNavigate={(input) => void navigate(input)}
+            onBack={() => void goBack()}
+            onForward={() => void goForward()}
+            onReload={() => void reload()}
+            onStop={() => void stop()}
+            onToggleFind={() => setFindOpen((open) => !open)}
+          />
+        </div>
+      )}
+
+      {findOpen && activeTab !== null && (
+        <FindBar
+          onFind={(text) => void window.smartlife.browser.find(activeTab.id, text)}
+          onClose={() => {
+            setFindOpen(false);
+            void window.smartlife.browser.stopFind(activeTab.id);
+          }}
+        />
+      )}
+
+      {activeTab?.error != null ? (
+        // The native view is hidden behind this, so without an explicit error
+        // panel a failed load is an unexplained blank rectangle.
+        <div role="alert" className="flex flex-1 flex-col items-start gap-3 p-8">
+          <h2 className="text-lg font-semibold" style={{ color: 'var(--color-text)' }}>
+            This page didn&apos;t load
+          </h2>
+          <p style={{ color: 'var(--color-text-muted)' }}>
+            {activeTab.error.description} ({activeTab.error.code})
+          </p>
+          <button
+            type="button"
+            onClick={() => void reload()}
+            className="rounded-md px-3 py-1.5 text-sm"
+            style={{ border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+          >
+            Try again
+          </button>
+        </div>
+      ) : (
+        <ViewportSlot />
+      )}
+    </div>
+  );
+}
+```
+
+- [ ] **Step 7: Route it in App.tsx**
+
+In `src/renderer/src/App.tsx`, add the import:
+
+```ts
+import { Browser } from './routes/Browser';
+```
+
+add the route beside the others:
+
+```tsx
+          <Route path="/browser" element={<Browser />} />
+```
+
+and add `/browser` to the list of paths excluded from the `ComingSoon` fallback:
+
+```tsx
+          {NAV_SECTIONS.filter(
+            (section) =>
+              section.path !== '/' &&
+              section.path !== '/settings' &&
+              section.path !== '/ai' &&
+              section.path !== '/school' &&
+              section.path !== '/calendar' &&
+              section.path !== '/browser'
+          ).map((section) => (
+```
+
+- [ ] **Step 8: Run the tests to verify they pass**
+
+Run: `npm test -- src/renderer/src/routes/Browser.test.tsx`
+Expected: PASS 12/12
+
+Run: `npm test && npm run typecheck && npm run lint`
+Expected: PASS, no errors.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add src/renderer/src/browser/TabStrip.tsx src/renderer/src/browser/AddressBar.tsx src/renderer/src/browser/FindBar.tsx src/renderer/src/routes/Browser.tsx src/renderer/src/routes/Browser.test.tsx src/renderer/src/App.tsx
+git commit -m "Add browser chrome: tabs, address bar, find-in-page, and the /browser route"
 ```
 
 ---
