@@ -16,8 +16,22 @@ export function useBrowser(): {
   const [state, setState] = useState<BrowserState | null>(null);
 
   useEffect(() => {
-    void window.smartlife.browser.getState().then(setState).catch(() => {});
-    return window.smartlife.browser.onStateChanged(setState);
+    let superseded = false;
+
+    // Subscribe first to capture any pushed updates that arrive before the fetch
+    const unsubscribe = window.smartlife.browser.onStateChanged((newState) => {
+      superseded = true;
+      setState(newState);
+    });
+
+    // Then fetch the initial state, but only apply it if no push has arrived yet
+    void window.smartlife.browser.getState().then((initialState) => {
+      if (!superseded) {
+        setState(initialState);
+      }
+    }).catch(() => {});
+
+    return unsubscribe;
   }, []);
 
   // The native view must only be on screen while this route is. Without the
