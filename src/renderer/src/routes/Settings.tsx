@@ -28,6 +28,8 @@ export function Settings() {
   const [clientSecretInput, setClientSecretInput] = useState('');
   const [calendarMessage, setCalendarMessage] = useState('');
   const [calendarError, setCalendarError] = useState('');
+  const [confirmingClear, setConfirmingClear] = useState(false);
+  const [browserMessage, setBrowserMessage] = useState('');
 
   useEffect(() => {
     window.smartlife.app.getVersion().then(setVersion).catch(() => {});
@@ -136,6 +138,12 @@ export function Settings() {
     await window.smartlife.canvas.clearToken();
     setCanvasStatus(await window.smartlife.canvas.getStatus());
     setCanvasMessage('Token removed.');
+  }
+
+  async function handleClearBrowsingData(): Promise<void> {
+    setConfirmingClear(false);
+    const result = await window.smartlife.browser.clearData();
+    setBrowserMessage(result.ok ? 'Browsing data cleared.' : 'Could not clear browsing data.');
   }
 
   return (
@@ -321,6 +329,55 @@ export function Settings() {
         {calendarError.length > 0 && <span role="alert" className="text-xs" style={{ color: '#EF4444' }}>{calendarError}</span>}
         {calendarStatus?.connected === true && (
           <CalendarToggles calendars={googleCalendars} onToggle={(id, enabled) => void handleToggleCalendar(id, enabled)} />
+        )}
+      </div>
+      <div className="flex flex-col gap-2" role="region" aria-label="Browser settings">
+        <h2 className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>
+          Browser
+        </h2>
+        <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+          The built-in browser keeps you signed in to sites like Canvas by storing their cookies on this
+          Mac.
+        </p>
+        {confirmingClear ? (
+          <div className="flex flex-col gap-2">
+            <span className="text-xs" style={{ color: 'var(--color-text)' }}>
+              This removes your browsing history, cookies, and cached files. You will be signed out of
+              Canvas and any other site in the built-in browser.
+            </span>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => void handleClearBrowsingData()}
+                className="rounded-md px-3 py-1.5 text-sm"
+                style={{ backgroundColor: '#EF4444', color: '#fff' }}
+              >
+                Yes, clear it
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmingClear(false)}
+                className="rounded-md px-3 py-1.5 text-sm"
+                style={{ border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+              >
+                Keep it
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setConfirmingClear(true)}
+            className="w-fit rounded-md px-3 py-1.5 text-sm"
+            style={{ border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+          >
+            Clear browsing data
+          </button>
+        )}
+        {browserMessage.length > 0 && (
+          <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+            {browserMessage}
+          </span>
         )}
       </div>
       <p style={{ color: 'var(--color-text-muted)' }}>SmartLife v{version}</p>

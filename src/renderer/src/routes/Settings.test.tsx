@@ -50,6 +50,7 @@ beforeEach(() => {
       disconnect: vi.fn().mockResolvedValue({ ok: true }),
       setCalendarEnabled: vi.fn().mockResolvedValue([]),
     },
+    browser: { clearData: vi.fn().mockResolvedValue({ ok: true }) },
   } as unknown as typeof window.smartlife;
 });
 
@@ -198,5 +199,52 @@ describe('Settings — Google Calendar', () => {
     fireEvent.click(within(region()).getByRole('button', { name: 'Connect' }));
 
     expect(await within(region()).findByRole('alert')).toHaveTextContent(/refresh token/i);
+  });
+});
+
+describe('Browser settings', () => {
+  it('renders its own region', async () => {
+    render(
+      <ThemeProvider>
+        <Settings />
+      </ThemeProvider>
+    );
+    expect(await screen.findByRole('region', { name: 'Browser settings' })).toBeInTheDocument();
+  });
+
+  it('asks for confirmation before clearing', async () => {
+    const user = userEvent.setup();
+    render(
+      <ThemeProvider>
+        <Settings />
+      </ThemeProvider>
+    );
+    await user.click(await screen.findByRole('button', { name: 'Clear browsing data' }));
+    expect(window.smartlife.browser.clearData).not.toHaveBeenCalled();
+    expect(screen.getByText(/cookies, and cached files/i)).toBeInTheDocument();
+  });
+
+  it('clears once confirmed', async () => {
+    const user = userEvent.setup();
+    render(
+      <ThemeProvider>
+        <Settings />
+      </ThemeProvider>
+    );
+    await user.click(await screen.findByRole('button', { name: 'Clear browsing data' }));
+    await user.click(screen.getByRole('button', { name: 'Yes, clear it' }));
+    expect(window.smartlife.browser.clearData).toHaveBeenCalledOnce();
+  });
+
+  it('can be backed out of', async () => {
+    const user = userEvent.setup();
+    render(
+      <ThemeProvider>
+        <Settings />
+      </ThemeProvider>
+    );
+    await user.click(await screen.findByRole('button', { name: 'Clear browsing data' }));
+    await user.click(screen.getByRole('button', { name: 'Keep it' }));
+    expect(window.smartlife.browser.clearData).not.toHaveBeenCalled();
   });
 });
