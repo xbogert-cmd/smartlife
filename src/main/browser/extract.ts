@@ -111,11 +111,17 @@ function generateNonce(): string {
  * Two defences are stacked here on purpose:
  *  1. The nonce (below) means a page can't know the real marker text in
  *     advance, so it can't forge a convincing closing line.
- *  2. This neutralisation means that even if the nonce were ever predictable,
- *     reused, or leaked (e.g. the model echoes it back into a later page the
- *     agent visits), the base marker text still can't appear in the
- *     untrusted region to be mistaken for part of the fence.
- * Neither alone is as good as both together.
+ *  2. This neutralisation strips the EXACT base marker text, so the most
+ *     obvious forgery attempt doesn't even reach the model.
+ *
+ * Be precise about what (2) is worth: it is a literal, case-sensitive match,
+ * so near-miss variants (different case, doubled spaces, a zero-width
+ * character inside the phrase) pass through untouched. That is acceptable
+ * because it is NOT what makes the fence safe -- (1) is. A variant marker
+ * still cannot carry the correct nonce, so it can never be string-identical
+ * to the real one. Do not mistake (2) for a guarantee that the base marker
+ * text is absent from the untrusted region; it only guarantees the exact
+ * literal is.
  */
 function neutralizeMarkerText(text: string): string {
   return text.split(BASE_BEGIN).join('[marker removed]').split(BASE_END).join('[marker removed]');
