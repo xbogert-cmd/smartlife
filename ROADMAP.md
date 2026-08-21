@@ -58,9 +58,26 @@ assumption later:
    "In production", whose only cost for a personal app is a one-time unverified-app
    warning screen.
 7. **No email anywhere in the original prompt's phase list** — and the user's mail
-   and class schedule both run through Microsoft/Outlook, not Google. Added as
-   Phase 4b, placed after Google Calendar so it reuses that phase's calendar UI,
-   storage, and scheduler, and before Phase 6 so the Planner can see class times.
+   runs through Microsoft/Outlook, not Google. Added as Phase 4b, placed after
+   Google Calendar so it can write into that phase's calendar, and before Phase 6
+   so the Planner can see class times.
+
+   Revised 2026-08-21 during the Phase 4b brainstorm: **Outlook *calendar* sync is
+   dropped.** The user does not use Outlook Calendar and confirmed it holds
+   nothing worth reading. That removes the entire multi-provider problem — the
+   calendar schema stays Google-only, with no `provider` column, no merged week
+   grid, and no second sync engine. What the user actually wanted was never two
+   calendars in one view; it was that an email saying "class is cancelled
+   Thursday" should reach their calendar. Phase 4b therefore delivers Outlook
+   *mail* plus AI-assisted event extraction that writes through Phase 4's existing
+   `createCalendarEvent`. Phase 6's dependency still holds by that route.
+
+   Two facts verified against Microsoft's docs during that brainstorm: desktop
+   apps are **public clients and must not use a client secret** (Client ID only,
+   PKCE for the rest), and the Azure portal **rejects `http://127.0.0.1` redirect
+   URIs** in its text box — so the registration uses `http://localhost`, whose
+   port is ignored during matching, letting Phase 4's dynamic-port loopback server
+   work unchanged.
 
 One more cost flag not in the original prompt: **macOS notarization / Developer
 ID code signing costs $99/year (Apple Developer Program)**. Not needed to build
@@ -77,7 +94,7 @@ unless you ask for it.
 | **2. AI Core** | Provider gateway (Claude adapter only for now), streaming, tool-calling architecture, ASK/ASSIST/AUTO permission modes, command palette, conversation storage | 1 | Anthropic API key (have it) — pay-as-you-go, user controls the cap |
 | **3. Canvas (read)** | Canvas REST client, courses/assignments/grades/modules, sync to local DB, School UI, course pages | 1, 2 | User generates a Canvas personal access token (free, self-service, ~2 min) |
 | **4. Google Calendar** | OAuth, multiple calendars, CRUD events, in-process sync, calendar AI tools, confirm-before-write | 1, 2 | Google Cloud OAuth app (free tier). **Must be a "Desktop app" client and the consent screen must be published to "In production"** — see correction #6 |
-| **4b. Microsoft / Outlook** | Outlook mail (read, search, send-with-confirmation) and Outlook calendar merged into the Phase 4 calendar views; Microsoft Graph client, OAuth, mail + calendar AI tools | 1, 2, 4 | Azure app registration (free). Reuses Phase 4's calendar UI, storage, and scheduler rather than building a second calendar |
+| **4b. Microsoft / Outlook Mail** | Outlook mail (read, search, send-with-confirmation), Microsoft Graph client + OAuth, mail AI tools, and email→calendar event extraction writing into the Phase 4 Google calendar. Adds an `ALWAYS_CONFIRM` permission tier that AUTO mode cannot bypass | 1, 2, 4 | Azure app registration (free, Client ID only — public clients have no secret). **Hard gate: the university tenant must allow user consent for third-party apps** — see correction #7 |
 | **5. Embedded browser** | Tabs, navigation, page-text extraction, AI browser context/tools, Canvas-in-browser | 1 | None |
 | **3b. Canvas submissions** | Assignment workspace, editor, submission confirmation flow, browser fallback for unsupported submission types | 2, 3, 5 | None (uses the Phase 3 token) |
 | **6. Planner** | Unified tasks, work schedule, smart scheduler, Canvas↔Calendar sync, Today/AI briefing | 2, 3, 4 (4b for the class schedule) | None |
