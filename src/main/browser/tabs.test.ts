@@ -46,8 +46,11 @@ describe('open', () => {
 });
 
 describe('close', () => {
-  it('removes the tab and activates its right neighbour', () => {
-    const state = tabReducer(threeTabs(), { type: 'close', id: 't2', blankId: 'blank' });
+  it('activates the right neighbour when closing an active non-rightmost tab', () => {
+    let start = threeTabs();
+    start = tabReducer(start, { type: 'activate', id: 't2' });
+    expect(start.activeTabId).toBe('t2');
+    const state = tabReducer(start, { type: 'close', id: 't2', blankId: 'blank' });
     expect(state.tabs.map((tab) => tab.id)).toEqual(['t1', 't3']);
     expect(state.activeTabId).toBe('t3');
   });
