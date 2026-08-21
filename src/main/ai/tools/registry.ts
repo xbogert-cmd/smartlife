@@ -9,6 +9,8 @@ import { calendarListEventsTool } from './calendarListEvents';
 import { calendarCreateEventTool } from './calendarCreateEvent';
 import { calendarUpdateEventTool } from './calendarUpdateEvent';
 import { calendarDeleteEventTool } from './calendarDeleteEvent';
+import { browserListTabsTool } from './browserListTabs';
+import { browserReadPageTool } from './browserReadPage';
 
 export const TOOLS: ToolDefinition[] = [
   getSettingsTool,
@@ -21,4 +23,6 @@ export const TOOLS: ToolDefinition[] = [
   calendarCreateEventTool,
   calendarUpdateEventTool,
   calendarDeleteEventTool,
+  browserListTabsTool,
+  browserReadPageTool,
 ];

@@ -5,6 +5,7 @@ import type { DownloadRequest } from './downloads';
 import type { ViewportRect } from './geometry';
 import { BROWSER_PARTITION } from './handlers';
 import { clearHistory, findHistory, historyCutoff, pruneHistory } from './history';
+import { setActiveBrowserHost } from './hostRegistry';
 import { createBrowserHost, type BrowserHost, type FindResult } from './view';
 
 export function registerBrowserIpcHandlers(
@@ -55,6 +56,7 @@ export function registerBrowserIpcHandlers(
     confirmDownload,
     onFindResult: (result: FindResult) => getWindow()?.webContents.send('browser:find-result', result),
   });
+  setActiveBrowserHost(host);
 
   ipcMain.handle('browser:get-state', () => host.getState());
   ipcMain.handle('browser:open-tab', (_event, url: string) => host.openTab(url));
