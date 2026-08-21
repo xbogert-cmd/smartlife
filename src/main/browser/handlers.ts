@@ -44,7 +44,12 @@ export function createNavigationGuard(
   return (event, url) => {
     if (isAllowedNavigationUrl(url)) return;
     event.preventDefault();
-    onBlocked(url);
+    try {
+      onBlocked(url);
+    } catch {
+      // onBlocked is a notification channel; its failure must not prevent the
+      // security verdict (preventDefault was already called).
+    }
   };
 }
 
@@ -66,9 +71,19 @@ export function createWindowOpenHandler(
 ): (details: { url: string }) => WindowOpenResult {
   return ({ url }) => {
     if (isAllowedNavigationUrl(url)) {
-      openTab(url);
+      try {
+        openTab(url);
+      } catch {
+        // openTab is a notification channel; its failure must not prevent the
+        // security verdict (deny is still returned).
+      }
     } else {
-      onBlocked(url);
+      try {
+        onBlocked(url);
+      } catch {
+        // onBlocked is a notification channel; its failure must not prevent the
+        // security verdict (deny is still returned).
+      }
     }
     return { action: 'deny' };
   };
@@ -91,11 +106,21 @@ export interface PermissionHandlers {
 export function createPermissionHandlers(onDenied: (permission: string) => void): PermissionHandlers {
   return {
     requestHandler(_contents, permission, callback) {
-      onDenied(permission);
+      try {
+        onDenied(permission);
+      } catch {
+        // onDenied is a notification channel; its failure must not prevent the
+        // security verdict (callback is still invoked).
+      }
       callback(shouldAllowPermission(permission));
     },
     checkHandler(_contents, permission) {
-      onDenied(permission);
+      try {
+        onDenied(permission);
+      } catch {
+        // onDenied is a notification channel; its failure must not prevent the
+        // security verdict (deny is still returned).
+      }
       return shouldAllowPermission(permission);
     },
   };

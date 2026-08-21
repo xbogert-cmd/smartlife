@@ -7,7 +7,6 @@ import {
   createWindowOpenHandler,
   EMBEDDED_WEB_PREFERENCES,
 } from './handlers';
-import { isAllowedNavigationUrl } from './security';
 
 describe('EMBEDDED_WEB_PREFERENCES', () => {
   // The entire security model of this phase rests on this one assertion.
@@ -64,6 +63,19 @@ describe('createNavigationGuard', () => {
     expect(event.preventDefault).toHaveBeenCalledOnce();
     expect(onBlocked).toHaveBeenCalledWith(url);
   });
+
+  it('still prevents navigation even if onBlocked throws', () => {
+    const onBlocked = vi.fn(() => {
+      throw new Error('callback error');
+    });
+    const guard = createNavigationGuard(onBlocked);
+    const event = { preventDefault: vi.fn() };
+
+    // Guard should not throw - it swallows callback errors
+    guard(event, 'file:///etc/passwd');
+    // preventDefault must be called even if onBlocked throws
+    expect(event.preventDefault).toHaveBeenCalledOnce();
+  });
 });
 
 describe('createWindowOpenHandler', () => {
@@ -92,6 +104,26 @@ describe('createWindowOpenHandler', () => {
     handler({ url: 'file:///etc/passwd' });
     expect(openTab).not.toHaveBeenCalled();
     expect(onBlocked).toHaveBeenCalledWith('file:///etc/passwd');
+  });
+
+  it('still denies even if openTab throws', () => {
+    const openTab = vi.fn(() => {
+      throw new Error('tab open error');
+    });
+    const handler = createWindowOpenHandler(openTab, vi.fn());
+    // Should return deny even if openTab throws
+    const result = handler({ url: 'https://uncw.edu/' });
+    expect(result).toEqual({ action: 'deny' });
+  });
+
+  it('still denies even if onBlocked throws', () => {
+    const onBlocked = vi.fn(() => {
+      throw new Error('blocked error');
+    });
+    const handler = createWindowOpenHandler(vi.fn(), onBlocked);
+    // Should return deny even if onBlocked throws
+    const result = handler({ url: 'file:///etc/passwd' });
+    expect(result).toEqual({ action: 'deny' });
   });
 });
 
@@ -130,5 +162,28 @@ describe('createPermissionHandlers', () => {
     const { requestHandler } = createPermissionHandlers(onDenied);
     requestHandler({}, 'geolocation', vi.fn());
     expect(onDenied).toHaveBeenCalledWith('geolocation');
+  });
+
+  it('still invokes callback with deny even if onDenied throws in requestHandler', () => {
+    const onDenied = vi.fn(() => {
+      throw new Error('deny error');
+    });
+    const { requestHandler } = createPermissionHandlers(onDenied);
+    const callback = vi.fn();
+
+    // Should not throw - callback must still be invoked with false
+    requestHandler({}, 'geolocation', callback);
+    expect(callback).toHaveBeenCalledWith(false);
+  });
+
+  it('still returns false even if onDenied throws in checkHandler', () => {
+    const onDenied = vi.fn(() => {
+      throw new Error('deny error');
+    });
+    const { checkHandler } = createPermissionHandlers(onDenied);
+
+    // Should not throw - must still return false
+    const result = checkHandler({}, 'geolocation');
+    expect(result).toBe(false);
   });
 });
