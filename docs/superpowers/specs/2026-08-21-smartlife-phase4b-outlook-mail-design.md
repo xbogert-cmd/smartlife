@@ -74,7 +74,9 @@ Inherited from the project and binding on every task:
 - Electron `safeStorage` (Keychain-backed) for all secrets; never a `.env` file.
 - Access tokens are never persisted — in-memory cache only, matching
   `calendar/token.ts`.
-- Migrations are additive and numbered; this phase adds `0005_mail.sql`.
+- Migrations are additive and numbered; this phase adds `0006_mail.sql`. (Was
+  `0005`; renumbered on 2026-08-21 because Phase 5 took `0005_browser.sql` while
+  this phase sat blocked.)
 - Main-process-only network access. The renderer reaches Graph only via IPC.
 - No raw `shell` or Node API exposed to the renderer through the preload bridge.
 - TDD with real assertions; no test may assert only that a function was called.
@@ -153,7 +155,7 @@ src/main/mail/extract.ts            Email -> EventCandidate[] (the reusable seam
 src/main/mail/scheduler.ts          Thin wrapper over the shared scheduler
 src/main/mail/ipc.ts                IPC channels
 
-src/main/db/migrations/0005_mail.sql
+src/main/db/migrations/0006_mail.sql
 
 src/main/ai/tools/mailSearch.ts
 src/main/ai/tools/mailRead.ts
@@ -198,7 +200,7 @@ authorize-URL construction, token endpoint, and token-response parsing.
 
 ### Storage
 
-`src/main/db/migrations/0005_mail.sql`:
+`src/main/db/migrations/0006_mail.sql`:
 
 ```sql
 create table mail_messages (
