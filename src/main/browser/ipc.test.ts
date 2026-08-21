@@ -218,15 +218,30 @@ describe('download confirmation round-trip', () => {
     await expect(pending).resolves.toBe(false);
   });
 
-  it('declines when there is no window to ask', async () => {
-    registerBrowserIpcHandlers(makeDb(), () => null);
+  it('declines a download when the window has closed since registration', async () => {
+    let windowRef: ReturnType<typeof makeWindow> | null = makeWindow();
+    const getWindow = () => windowRef;
+    registerBrowserIpcHandlers(makeDb(), getWindow as never);
     const confirmDownload = capturedOptions.confirmDownload as (
       request: unknown
     ) => Promise<boolean>;
-    // A download that cannot be confirmed must never default to "yes".
-    await expect(
-      confirmDownload({ filename: 'a.pdf', sizeBytes: 1, sourceUrl: 'https://x.test/a.pdf' })
-    ).resolves.toBe(false);
+
+    // Window exists at registration time, but close it before sending a download
+    windowRef = null;
+    sent = [];
+
+    const result = await confirmDownload({ filename: 'a.pdf', sizeBytes: 1, sourceUrl: 'https://x.test/a.pdf' });
+
+    // A download that cannot be confirmed must never default to "yes"
+    expect(result).toBe(false);
+    // No download request should have been sent
+    expect(sent.find((m) => m.channel === 'browser:download-request')).toBeUndefined();
+  });
+
+  it('throws when registering with no window', () => {
+    expect(() => registerBrowserIpcHandlers(makeDb(), () => null)).toThrow(
+      'registerBrowserIpcHandlers must be called after the main window exists.'
+    );
   });
 
   it('ignores a response for an unknown id', () => {

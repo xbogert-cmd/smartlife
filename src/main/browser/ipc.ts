@@ -19,6 +19,14 @@ export function registerBrowserIpcHandlers(
     logError('browser:pruneHistory', error);
   }
 
+  // The host attaches views to the window's contentView, so the window must
+  // exist before registration. Fail fast with a clear error rather than
+  // letting an opaque Electron crash happen inside contentView.addChildView.
+  const window = getWindow();
+  if (window === null) {
+    throw new Error('registerBrowserIpcHandlers must be called after the main window exists.');
+  }
+
   // Pending download confirmations, keyed by request id. Mirrors the
   // ai:confirm-request / ai:confirm-response pair rather than inventing a
   // second idiom for the same shape of problem.
@@ -39,11 +47,8 @@ export function registerBrowserIpcHandlers(
     });
   }
 
-  // The host attaches views to the window's contentView, so this must run
-  // after the main window exists -- see src/main/index.ts, where
-  // registerBrowserIpcHandlers is only called once mainWindow is assigned.
   const host = createBrowserHost({
-    window: getWindow()!,
+    window,
     db,
     downloadsDir: app.getPath('downloads'),
     onStateChange: (state) => getWindow()?.webContents.send('browser:state-changed', state),
