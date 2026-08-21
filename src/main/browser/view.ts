@@ -261,7 +261,12 @@ export function createBrowserHost(options: BrowserHostOptions): BrowserHost {
     const visible = routeActive && !suspension.isSuspended();
     for (const [id, view] of views) {
       const isActive = id === state.activeTabId;
-      view.setVisible(isActive && visible);
+      const tab = state.tabs.find((candidate) => candidate.id === id);
+      // A failed main-frame load has nothing to show; the renderer swaps in
+      // an error panel in the view's place, so the native view must not sit
+      // on top of it.
+      const hasError = tab?.error != null;
+      view.setVisible(isActive && visible && !hasError);
       if (isActive) view.setBounds(toViewBounds(currentBounds));
     }
   }

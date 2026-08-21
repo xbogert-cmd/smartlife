@@ -270,6 +270,27 @@ describe('visibility', () => {
     expect(added[1].visible).toBe(true);
   });
 
+  it('hides a tab whose main frame failed to load, even though the route is active and nothing is suspended', () => {
+    const { host, added } = makeHost();
+    host.setRouteActive(true);
+    expect(added[0].visible).toBe(true);
+    added[0].webContents.emit('did-fail-load', {}, -105, 'ERR_NAME_NOT_RESOLVED', 'https://nope.test/', true);
+    expect(host.getState().tabs[0].error).not.toBeNull();
+    expect(added[0].visible).toBe(false);
+  });
+
+  it('shows the view again once a reload clears the error', () => {
+    const { host, added } = makeHost();
+    host.setRouteActive(true);
+    added[0].webContents.emit('did-fail-load', {}, -105, 'ERR_NAME_NOT_RESOLVED', 'https://nope.test/', true);
+    expect(added[0].visible).toBe(false);
+
+    host.reload(host.getState().activeTabId);
+    added[0].webContents.emit('did-start-loading');
+    expect(host.getState().tabs[0].error).toBeNull();
+    expect(added[0].visible).toBe(true);
+  });
+
   it('applies rounded, clamped bounds to the active view', () => {
     const { host, added } = makeHost();
     host.setRouteActive(true);
