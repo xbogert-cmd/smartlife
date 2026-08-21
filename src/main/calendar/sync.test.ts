@@ -220,7 +220,11 @@ describe('syncAll', () => {
     vi.mocked(listEvents).mockResolvedValue([
       timedEvent('e1', '2026-08-21T14:00:00Z', '2026-08-21T15:00:00Z'),
     ] as never);
-    await syncAll(db, NOW);
+    // A real second sync always runs at a later clock reading than the
+    // first -- syncAll(db, NOW) twice with the identical NOW is not a
+    // pattern any real caller produces (see the strict `synced_at <`
+    // comparison in replaceWindow).
+    await syncAll(db, new Date(NOW.getTime() + 60_000));
 
     const ids = db.prepare('select id from google_events').all() as Array<{ id: string }>;
     expect(ids).toEqual([{ id: 'e1' }]);
@@ -237,7 +241,9 @@ describe('syncAll', () => {
     expect(db.prepare('select count(*) as n from google_events').get()).toEqual({ n: 1 });
 
     vi.mocked(listEvents).mockResolvedValue([] as never);
-    await syncAll(db, NOW);
+    // A real second sync always runs at a later clock reading than the
+    // first -- see the note in the "vanished from Google" test above.
+    await syncAll(db, new Date(NOW.getTime() + 60_000));
 
     // A bare date compares lexicographically BEFORE a same-day timestamp, so
     // a timestamp lower bound would leave this row orphaned forever.

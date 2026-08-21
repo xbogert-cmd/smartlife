@@ -252,18 +252,20 @@ function replaceWindow(
   // simply absent from the response, so it disappears here with no tombstone
   // bookkeeping. Correct by construction. Rows outside the window survive.
   //
-  // `synced_at <= syncedAt` guards against a race: this fetch may have been
-  // in flight for a while, so a concurrent write's direct upsertEvent() call
-  // can land (stamped with its OWN, later synced_at) before this delete
-  // runs. Scoping the delete to rows stamped no later than THIS sync's own
-  // stamp means it can never delete a row a strictly newer write just
-  // landed. ponytail: a write racing in at the exact same millisecond as
-  // this sync's own stamp is (correctly, if rarely) not protected -- upgrade
-  // to a monotonic counter instead of wall-clock timestamps if that ever
-  // matters in practice.
+  // `synced_at < syncedAt` (strict) guards against a race: this fetch may
+  // have been in flight for a while, so a concurrent write's direct
+  // upsertEvent() call can land (stamped with its OWN synced_at) before this
+  // delete runs. A row survives only if it was stamped strictly BEFORE this
+  // sync's own stamp -- i.e. this sync cannot prove it postdates that write.
+  // This must stay strict, not `<=`: writes.ts stamps its direct upsertEvent()
+  // and its own follow-up resync with the SAME `now`, so on every write the
+  // resync's syncedAt exactly equals the syncedAt already sitting on the row
+  // the write just upserted. With `<=` that tie would let the resync's own
+  // delete remove the row it just wrote (e.g. when the resync's listEvents
+  // response hasn't caught up yet), silently undoing the direct upsert.
   const run = db.transaction((events: EventRowValues[]) => {
     db.prepare(
-      'delete from google_events where calendar_id = ? and start_at >= ? and start_at < ? and synced_at <= ?'
+      'delete from google_events where calendar_id = ? and start_at >= ? and start_at < ? and synced_at < ?'
     ).run(calendarId, deleteMin, deleteMax, syncedAt);
     for (const event of events) insert.run(event);
   });
