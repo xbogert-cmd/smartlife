@@ -6,6 +6,8 @@ import { registerIpcHandlers } from './ipc';
 import { registerAiIpcHandlers } from './ai/ipc';
 import { registerCanvasIpcHandlers } from './canvas/ipc';
 import { startCanvasScheduler, type CanvasScheduler } from './canvas/scheduler';
+import { registerCalendarIpcHandlers } from './calendar/ipc';
+import { startCalendarScheduler, type CalendarScheduler } from './calendar/scheduler';
 import { buildMenu } from './menu';
 import { buildCsp } from './csp';
 import { logError, getLogPath } from './log';
@@ -27,6 +29,7 @@ if (!gotLock) {
   let dbConnection: Database.Database | null = null;
   let handlersRegistered = false;
   let canvasScheduler: CanvasScheduler | null = null;
+  let calendarScheduler: CalendarScheduler | null = null;
 
   app.on('second-instance', () => {
     if (mainWindow) {
@@ -97,6 +100,8 @@ if (!gotLock) {
         registerAiIpcHandlers(dbConnection, () => mainWindow);
         canvasScheduler = startCanvasScheduler(dbConnection, () => mainWindow);
         registerCanvasIpcHandlers(dbConnection, () => mainWindow, canvasScheduler);
+        calendarScheduler = startCalendarScheduler(dbConnection, () => mainWindow);
+        registerCalendarIpcHandlers(dbConnection, () => mainWindow, calendarScheduler);
         handlersRegistered = true;
       } catch (error) {
         logError('startup', error);
@@ -138,6 +143,7 @@ if (!gotLock) {
 
   app.on('before-quit', () => {
     canvasScheduler?.stop();
+    calendarScheduler?.stop();
     dbConnection?.close();
   });
 }

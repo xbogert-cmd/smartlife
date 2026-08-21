@@ -33,6 +33,31 @@ interface CanvasActionResult {
   name?: string;
 }
 
+interface CalendarStatus {
+  clientConfigured: boolean;
+  connected: boolean;
+  accountEmail: string | null;
+  lastSyncedAt: string | null;
+  tokenInvalid: boolean;
+}
+
+interface CalendarActionResult {
+  ok: boolean;
+  error?: string;
+  eventId?: string;
+}
+
+interface EventDraft {
+  calendarId: string;
+  summary: string;
+  description?: string;
+  location?: string;
+  startAt: string;
+  endAt: string;
+  isAllDay: boolean;
+  attendees?: string[];
+}
+
 const smartlife = {
   theme: {
     get: (): Promise<'light' | 'dark' | 'system'> => ipcRenderer.invoke('theme:get'),
@@ -96,6 +121,32 @@ const smartlife = {
       const listener = (): void => cb();
       ipcRenderer.on('canvas:sync-changed', listener);
       return () => ipcRenderer.removeListener('canvas:sync-changed', listener);
+    },
+  },
+  calendar: {
+    getStatus: (): Promise<CalendarStatus> => ipcRenderer.invoke('calendar:get-status'),
+    setClientConfig: (clientId: string, clientSecret: string): Promise<CalendarActionResult> =>
+      ipcRenderer.invoke('calendar:set-client-config', clientId, clientSecret),
+    connect: (): Promise<CalendarActionResult> => ipcRenderer.invoke('calendar:connect'),
+    disconnect: (): Promise<CalendarActionResult> => ipcRenderer.invoke('calendar:disconnect'),
+    syncNow: (): Promise<CalendarStatus> => ipcRenderer.invoke('calendar:sync-now'),
+    listCalendars: (): Promise<unknown[]> => ipcRenderer.invoke('calendar:list-calendars'),
+    setCalendarEnabled: (calendarId: string, enabled: boolean): Promise<unknown[]> =>
+      ipcRenderer.invoke('calendar:set-calendar-enabled', calendarId, enabled),
+    getEvents: (fromDate: string, toDate: string): Promise<unknown[]> =>
+      ipcRenderer.invoke('calendar:get-events', fromDate, toDate),
+    getAssignments: (fromDate: string, toDate: string): Promise<unknown[]> =>
+      ipcRenderer.invoke('calendar:get-assignments', fromDate, toDate),
+    createEvent: (draft: EventDraft): Promise<CalendarActionResult> =>
+      ipcRenderer.invoke('calendar:create-event', draft),
+    updateEvent: (eventId: string, draft: EventDraft): Promise<CalendarActionResult> =>
+      ipcRenderer.invoke('calendar:update-event', eventId, draft),
+    deleteEvent: (calendarId: string, eventId: string): Promise<CalendarActionResult> =>
+      ipcRenderer.invoke('calendar:delete-event', calendarId, eventId),
+    onSyncChanged: (cb: () => void): (() => void) => {
+      const listener = (): void => cb();
+      ipcRenderer.on('calendar:sync-changed', listener);
+      return () => ipcRenderer.removeListener('calendar:sync-changed', listener);
     },
   },
 };

@@ -57,6 +57,27 @@ beforeEach(() => {
       searchMaterials: vi.fn().mockResolvedValue([]),
       onSyncChanged: vi.fn().mockReturnValue(() => {}),
     },
+    calendar: {
+      getStatus: vi.fn().mockResolvedValue({
+        clientConfigured: false,
+        connected: false,
+        accountEmail: null,
+        lastSyncedAt: null,
+        tokenInvalid: false,
+      }),
+      setClientConfig: vi.fn(),
+      connect: vi.fn(),
+      disconnect: vi.fn(),
+      syncNow: vi.fn(),
+      listCalendars: vi.fn().mockResolvedValue([]),
+      setCalendarEnabled: vi.fn().mockResolvedValue([]),
+      getEvents: vi.fn().mockResolvedValue([]),
+      getAssignments: vi.fn().mockResolvedValue([]),
+      createEvent: vi.fn(),
+      updateEvent: vi.fn(),
+      deleteEvent: vi.fn(),
+      onSyncChanged: vi.fn().mockReturnValue(() => {}),
+    },
   };
 });
 
