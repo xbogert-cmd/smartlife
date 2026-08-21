@@ -1631,3 +1631,1272 @@ git commit -m "Add page-text extraction with PDF detection and untrusted-content
 ```
 
 ---
+
+### Task 7: Security handler factories
+
+**Files:**
+- Create: `src/main/browser/handlers.ts`
+- Create: `src/main/browser/handlers.test.ts`
+
+**Interfaces:**
+- Consumes: `isAllowedNavigationUrl`, `shouldAllowPermission`, `DENIED_PERMISSIONS` from `./security` (Task 2).
+- Produces:
+  - `BROWSER_PARTITION: string` (`'persist:browser'`)
+  - `EMBEDDED_WEB_PREFERENCES` — the exact object passed to every `WebContentsView`
+  - `createNavigationGuard(onBlocked: (url: string) => void): (event: PreventableEvent, url: string) => void`
+  - `createWindowOpenHandler(openTab: (url: string) => void, onBlocked: (url: string) => void): (details: { url: string }) => { action: 'deny' }`
+  - `createPermissionHandlers(onDenied: (permission: string) => void): { requestHandler; checkHandler }`
+
+**Why these are factories in their own module:** the security rules that matter most are the ones wired to Electron callbacks, and a module that imports `electron` cannot be meaningfully unit-tested under `ELECTRON_RUN_AS_NODE`. Typing the callbacks structurally — `{ preventDefault(): void }` rather than `Electron.Event` — means every rule is testable with a plain object, and `view.ts` (Task 9) is left with nothing but wiring.
+
+- [ ] **Step 1: Write the failing test**
+
+Create `src/main/browser/handlers.test.ts`:
+
+```ts
+import { describe, expect, it, vi } from 'vitest';
+import { DENIED_PERMISSIONS } from './security';
+import {
+  BROWSER_PARTITION,
+  createNavigationGuard,
+  createPermissionHandlers,
+  createWindowOpenHandler,
+  EMBEDDED_WEB_PREFERENCES,
+} from './handlers';
+
+describe('EMBEDDED_WEB_PREFERENCES', () => {
+  // The entire security model of this phase rests on this one assertion.
+  // window.smartlife cannot exist in embedded content because nothing ever
+  // puts it there.
+  it('never sets a preload script', () => {
+    expect('preload' in EMBEDDED_WEB_PREFERENCES).toBe(false);
+    expect(Object.keys(EMBEDDED_WEB_PREFERENCES)).not.toContain('preload');
+  });
+
+  it('isolates context, disables node, and sandboxes', () => {
+    expect(EMBEDDED_WEB_PREFERENCES.contextIsolation).toBe(true);
+    expect(EMBEDDED_WEB_PREFERENCES.nodeIntegration).toBe(false);
+    expect(EMBEDDED_WEB_PREFERENCES.sandbox).toBe(true);
+  });
+
+  it('never disables webSecurity', () => {
+    expect('webSecurity' in EMBEDDED_WEB_PREFERENCES).toBe(false);
+  });
+
+  it('uses a non-default persistent partition', () => {
+    // Not the default session: the app's CSP is bound to defaultSession and
+    // would break every website loaded here.
+    expect(BROWSER_PARTITION).toBe('persist:browser');
+    expect(EMBEDDED_WEB_PREFERENCES.partition).toBe(BROWSER_PARTITION);
+  });
+});
+
+describe('createNavigationGuard', () => {
+  it('allows http and https through untouched', () => {
+    const onBlocked = vi.fn();
+    const guard = createNavigationGuard(onBlocked);
+    const event = { preventDefault: vi.fn() };
+
+    guard(event, 'https://uncw.edu/');
+
+    expect(event.preventDefault).not.toHaveBeenCalled();
+    expect(onBlocked).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    'file:///etc/passwd',
+    'data:text/html,<h1>hi</h1>',
+    'blob:https://evil.test/1',
+    'javascript:alert(1)',
+    'smartlife://internal',
+  ])('blocks %s and reports it', (url) => {
+    const onBlocked = vi.fn();
+    const guard = createNavigationGuard(onBlocked);
+    const event = { preventDefault: vi.fn() };
+
+    guard(event, url);
+
+    expect(event.preventDefault).toHaveBeenCalledOnce();
+    expect(onBlocked).toHaveBeenCalledWith(url);
+  });
+});
+
+describe('createWindowOpenHandler', () => {
+  it('always denies, even for a URL it is happy to open', () => {
+    const openTab = vi.fn();
+    const handler = createWindowOpenHandler(openTab, vi.fn());
+    expect(handler({ url: 'https://uncw.edu/' })).toEqual({ action: 'deny' });
+  });
+
+  it('always denies for a URL it refuses', () => {
+    const handler = createWindowOpenHandler(vi.fn(), vi.fn());
+    expect(handler({ url: 'file:///etc/passwd' })).toEqual({ action: 'deny' });
+  });
+
+  it('opens an allowed popup as a tab instead', () => {
+    const openTab = vi.fn();
+    const handler = createWindowOpenHandler(openTab, vi.fn());
+    handler({ url: 'https://uncw.edu/popup' });
+    expect(openTab).toHaveBeenCalledWith('https://uncw.edu/popup');
+  });
+
+  it('does not open a tab for a refused scheme, and reports it', () => {
+    const openTab = vi.fn();
+    const onBlocked = vi.fn();
+    const handler = createWindowOpenHandler(openTab, onBlocked);
+    handler({ url: 'file:///etc/passwd' });
+    expect(openTab).not.toHaveBeenCalled();
+    expect(onBlocked).toHaveBeenCalledWith('file:///etc/passwd');
+  });
+});
+
+describe('createPermissionHandlers', () => {
+  it('denies every permission Electron can request', () => {
+    const onDenied = vi.fn();
+    const { requestHandler } = createPermissionHandlers(onDenied);
+
+    for (const permission of DENIED_PERMISSIONS) {
+      const callback = vi.fn();
+      requestHandler({}, permission, callback);
+      expect(callback).toHaveBeenCalledWith(false);
+    }
+    expect(onDenied).toHaveBeenCalledTimes(DENIED_PERMISSIONS.length);
+  });
+
+  it('denies an unknown future permission', () => {
+    const { requestHandler } = createPermissionHandlers(vi.fn());
+    const callback = vi.fn();
+    requestHandler({}, 'some-future-capability', callback);
+    expect(callback).toHaveBeenCalledWith(false);
+  });
+
+  // The synchronous check handler is easy to forget, and forgetting it means
+  // some permission checks silently succeed.
+  it('denies every permission through the synchronous check handler too', () => {
+    const { checkHandler } = createPermissionHandlers(vi.fn());
+    for (const permission of DENIED_PERMISSIONS) {
+      expect(checkHandler({}, permission)).toBe(false);
+    }
+    expect(checkHandler({}, 'some-future-capability')).toBe(false);
+  });
+
+  it('reports what was denied so a real breakage leaves evidence', () => {
+    const onDenied = vi.fn();
+    const { requestHandler } = createPermissionHandlers(onDenied);
+    requestHandler({}, 'geolocation', vi.fn());
+    expect(onDenied).toHaveBeenCalledWith('geolocation');
+  });
+});
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run: `npm test -- src/main/browser/handlers.test.ts`
+Expected: FAIL — `Failed to resolve import "./handlers"`.
+
+- [ ] **Step 3: Implement the module**
+
+Create `src/main/browser/handlers.ts`:
+
+```ts
+import { isAllowedNavigationUrl, shouldAllowPermission } from './security';
+
+/**
+ * All tabs share one persistent partition.
+ *
+ * Persistent because the Canvas login has to survive tab switches and app
+ * restarts -- that is the entire premise of Canvas-in-browser and of Phase 3b.
+ *
+ * NOT the default session, and that part is about correctness rather than
+ * isolation: the app's Content-Security-Policy is applied to
+ * session.defaultSession (src/main/index.ts), and inheriting
+ * `default-src 'self'` would break every website loaded here.
+ */
+export const BROWSER_PARTITION = 'persist:browser';
+
+/**
+ * The exact webPreferences object passed to every WebContentsView.
+ *
+ * There is deliberately no `preload` key. window.smartlife must not be
+ * reachable from embedded web content, and the way to guarantee that is to
+ * never put it there in the first place. handlers.test.ts asserts on this.
+ *
+ * `webSecurity` is absent too, which leaves it at its secure default (true).
+ */
+export const EMBEDDED_WEB_PREFERENCES = {
+  contextIsolation: true,
+  nodeIntegration: false,
+  sandbox: true,
+  partition: BROWSER_PARTITION,
+} as const;
+
+/** Structural stand-in for Electron.Event, so this module stays testable. */
+export interface PreventableEvent {
+  preventDefault(): void;
+}
+
+/**
+ * Wired to will-navigate and will-redirect on every embedded webContents.
+ * Allowlist, not blocklist -- see security.ts.
+ */
+export function createNavigationGuard(
+  onBlocked: (url: string) => void
+): (event: PreventableEvent, url: string) => void {
+  return (event, url) => {
+    if (isAllowedNavigationUrl(url)) return;
+    event.preventDefault();
+    onBlocked(url);
+  };
+}
+
+export interface WindowOpenResult {
+  action: 'deny';
+}
+
+/**
+ * Wired to setWindowOpenHandler on every embedded webContents.
+ *
+ * ALWAYS returns deny, then opens a tab itself. Returning 'allow' would hand
+ * Electron the job of creating a real BrowserWindow with webPreferences we did
+ * not specify -- and every rendering surface in this app must be one we
+ * configured deliberately.
+ */
+export function createWindowOpenHandler(
+  openTab: (url: string) => void,
+  onBlocked: (url: string) => void
+): (details: { url: string }) => WindowOpenResult {
+  return ({ url }) => {
+    if (isAllowedNavigationUrl(url)) {
+      openTab(url);
+    } else {
+      onBlocked(url);
+    }
+    return { action: 'deny' };
+  };
+}
+
+export interface PermissionHandlers {
+  requestHandler: (contents: unknown, permission: string, callback: (granted: boolean) => void) => void;
+  checkHandler: (contents: unknown, permission: string) => boolean;
+}
+
+/**
+ * Both handlers are installed on the partition. The synchronous check handler
+ * is the one that gets forgotten, and forgetting it means some permission
+ * checks silently succeed.
+ *
+ * Every denial is reported so that if something the user genuinely needs
+ * breaks, there is evidence rather than a theory about which permission to
+ * allow.
+ */
+export function createPermissionHandlers(onDenied: (permission: string) => void): PermissionHandlers {
+  return {
+    requestHandler(_contents, permission, callback) {
+      onDenied(permission);
+      callback(shouldAllowPermission(permission));
+    },
+    checkHandler(_contents, permission) {
+      onDenied(permission);
+      return shouldAllowPermission(permission);
+    },
+  };
+}
+```
+
+- [ ] **Step 4: Run the tests to verify they pass**
+
+Run: `npm test -- src/main/browser/handlers.test.ts`
+Expected: PASS — 4 preference tests, 6 navigation tests, 4 window-open tests, 4 permission tests.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/main/browser/handlers.ts src/main/browser/handlers.test.ts
+git commit -m "Add embedded-content security handler factories with no-preload guarantee"
+```
+
+---
+
+### Task 8: Download confirmation
+
+**Files:**
+- Create: `src/main/browser/downloads.ts`
+- Create: `src/main/browser/downloads.test.ts`
+
+**Interfaces:**
+- Consumes: `sanitizeDownloadFilename` from `./security` (Task 2).
+- Produces:
+  - `interface DownloadRequest { filename: string; sizeBytes: number; sourceUrl: string }`
+  - `interface DownloadItemLike { getFilename(): string; getTotalBytes(): number; getURL(): string; setSavePath(path: string): void; pause(): void; resume(): void; cancel(): void }`
+  - `createDownloadHandler(options: DownloadHandlerOptions): (item: DownloadItemLike) => void`
+  - `interface DownloadHandlerOptions { downloadsDir: string; confirm: (request: DownloadRequest) => Promise<boolean>; onError: (error: unknown) => void }`
+
+**Two Electron details this depends on, both worth stating because getting either wrong is silent:**
+
+1. `setSavePath` must be called **synchronously** inside the `will-download` handler. Set it after the handler returns and Electron shows its own save dialog instead — which would defeat the whole confirmation.
+2. `pause()` must also be called synchronously, before awaiting the user. Otherwise bytes are already landing on disk while the confirmation is still on screen.
+
+So the handler sets the path and pauses immediately, then awaits the answer and either resumes or cancels. Cancelling discards the partial file.
+
+- [ ] **Step 1: Write the failing test**
+
+Create `src/main/browser/downloads.test.ts`:
+
+```ts
+import { describe, expect, it, vi } from 'vitest';
+import { createDownloadHandler, type DownloadItemLike, type DownloadRequest } from './downloads';
+
+function fakeItem(overrides: Partial<Record<string, unknown>> = {}): DownloadItemLike & {
+  setSavePath: ReturnType<typeof vi.fn>;
+  pause: ReturnType<typeof vi.fn>;
+  resume: ReturnType<typeof vi.fn>;
+  cancel: ReturnType<typeof vi.fn>;
+} {
+  return {
+    getFilename: () => (overrides.filename as string) ?? 'syllabus.pdf',
+    getTotalBytes: () => (overrides.size as number) ?? 1024,
+    getURL: () => (overrides.url as string) ?? 'https://uncw.edu/syllabus.pdf',
+    setSavePath: vi.fn(),
+    pause: vi.fn(),
+    resume: vi.fn(),
+    cancel: vi.fn(),
+  };
+}
+
+describe('createDownloadHandler', () => {
+  it('sets the save path and pauses synchronously, before awaiting the user', () => {
+    let resolveConfirm: (value: boolean) => void = () => {};
+    const confirm = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveConfirm = resolve;
+        })
+    );
+    const handler = createDownloadHandler({
+      downloadsDir: '/Users/test/Downloads',
+      confirm,
+      onError: vi.fn(),
+    });
+    const item = fakeItem();
+
+    handler(item);
+
+    // Both must have happened by the time the handler returns.
+    expect(item.setSavePath).toHaveBeenCalledWith('/Users/test/Downloads/syllabus.pdf');
+    expect(item.pause).toHaveBeenCalledOnce();
+    expect(item.resume).not.toHaveBeenCalled();
+    resolveConfirm(false);
+  });
+
+  it('describes the download accurately in the confirmation request', async () => {
+    const requests: DownloadRequest[] = [];
+    const confirm = vi.fn(async (request: DownloadRequest) => {
+      requests.push(request);
+      return false;
+    });
+    const handler = createDownloadHandler({ downloadsDir: '/d', confirm, onError: vi.fn() });
+
+    handler(fakeItem({ filename: 'notes.pdf', size: 52428800, url: 'https://x.test/notes.pdf' }));
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+
+    expect(requests[0]).toEqual({
+      filename: 'notes.pdf',
+      sizeBytes: 52428800,
+      sourceUrl: 'https://x.test/notes.pdf',
+    });
+  });
+
+  it('resumes when the user approves', async () => {
+    const handler = createDownloadHandler({
+      downloadsDir: '/d',
+      confirm: async () => true,
+      onError: vi.fn(),
+    });
+    const item = fakeItem();
+
+    handler(item);
+    await vi.waitFor(() => expect(item.resume).toHaveBeenCalledOnce());
+    expect(item.cancel).not.toHaveBeenCalled();
+  });
+
+  it('cancels when the user declines', async () => {
+    const handler = createDownloadHandler({
+      downloadsDir: '/d',
+      confirm: async () => false,
+      onError: vi.fn(),
+    });
+    const item = fakeItem();
+
+    handler(item);
+    await vi.waitFor(() => expect(item.cancel).toHaveBeenCalledOnce());
+    expect(item.resume).not.toHaveBeenCalled();
+  });
+
+  it('cancels and reports when the confirmation itself fails', async () => {
+    const onError = vi.fn();
+    const handler = createDownloadHandler({
+      downloadsDir: '/d',
+      confirm: async () => {
+        throw new Error('window closed');
+      },
+      onError,
+    });
+    const item = fakeItem();
+
+    handler(item);
+    await vi.waitFor(() => expect(item.cancel).toHaveBeenCalledOnce());
+    expect(onError).toHaveBeenCalledOnce();
+  });
+
+  it('sanitizes a traversal filename before building the save path', async () => {
+    const requests: DownloadRequest[] = [];
+    const handler = createDownloadHandler({
+      downloadsDir: '/Users/test/Downloads',
+      confirm: async (request) => {
+        requests.push(request);
+        return false;
+      },
+      onError: vi.fn(),
+    });
+    const item = fakeItem({ filename: '../../../../etc/cron.d/evil' });
+
+    handler(item);
+
+    expect(item.setSavePath).toHaveBeenCalledWith('/Users/test/Downloads/evil');
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    // The user is shown the name that will actually be written, not the
+    // server's claim.
+    expect(requests[0].filename).toBe('evil');
+  });
+
+  it('falls back to a safe name when nothing usable remains', () => {
+    const handler = createDownloadHandler({
+      downloadsDir: '/d',
+      confirm: async () => false,
+      onError: vi.fn(),
+    });
+    const item = fakeItem({ filename: '../' });
+
+    handler(item);
+
+    expect(item.setSavePath).toHaveBeenCalledWith('/d/download');
+  });
+});
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run: `npm test -- src/main/browser/downloads.test.ts`
+Expected: FAIL — `Failed to resolve import "./downloads"`.
+
+- [ ] **Step 3: Implement the module**
+
+Create `src/main/browser/downloads.ts`:
+
+```ts
+import { sanitizeDownloadFilename } from './security';
+
+export interface DownloadRequest {
+  filename: string;
+  sizeBytes: number;
+  sourceUrl: string;
+}
+
+/**
+ * Structural stand-in for Electron.DownloadItem -- only the members this
+ * handler touches, so the whole flow is testable with a plain object.
+ */
+export interface DownloadItemLike {
+  getFilename(): string;
+  getTotalBytes(): number;
+  getURL(): string;
+  setSavePath(path: string): void;
+  pause(): void;
+  resume(): void;
+  cancel(): void;
+}
+
+export interface DownloadHandlerOptions {
+  downloadsDir: string;
+  confirm: (request: DownloadRequest) => Promise<boolean>;
+  onError: (error: unknown) => void;
+}
+
+/**
+ * Wired to session.on('will-download') for the browser partition.
+ *
+ * Two things must happen synchronously, before the handler returns:
+ *
+ *   setSavePath -- Electron shows its own save dialog if the path is still
+ *   unset when the handler returns, which would bypass our confirmation
+ *   entirely.
+ *
+ *   pause -- otherwise bytes are already being written while the user is still
+ *   looking at the prompt.
+ *
+ * Only then is the user asked. Cancelling discards the partial file.
+ */
+export function createDownloadHandler(
+  options: DownloadHandlerOptions
+): (item: DownloadItemLike) => void {
+  const { downloadsDir, confirm, onError } = options;
+
+  return (item) => {
+    // The server chooses this string; treat it as hostile.
+    const filename = sanitizeDownloadFilename(item.getFilename());
+    item.setSavePath(`${downloadsDir}/${filename}`);
+    item.pause();
+
+    const request: DownloadRequest = {
+      // Show the name that will actually be written, not the server's claim.
+      filename,
+      sizeBytes: item.getTotalBytes(),
+      sourceUrl: item.getURL(),
+    };
+
+    void confirm(request)
+      .then((approved) => {
+        if (approved) item.resume();
+        else item.cancel();
+      })
+      .catch((error: unknown) => {
+        // A failed prompt must never resolve as "yes".
+        onError(error);
+        item.cancel();
+      });
+  };
+}
+```
+
+- [ ] **Step 4: Run the tests to verify they pass**
+
+Run: `npm test -- src/main/browser/downloads.test.ts`
+Expected: PASS 7/7
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/main/browser/downloads.ts src/main/browser/downloads.test.ts
+git commit -m "Add download confirmation flow with synchronous pause and path sanitization"
+```
+
+---
+
+### Task 9: WebContentsView host
+
+**Files:**
+- Create: `src/main/browser/view.ts`
+- Create: `src/main/browser/view.test.ts`
+
+**Interfaces:**
+- Consumes: everything from Tasks 1–8 — `recordVisit` (`./history`), `resolveAddressInput` (`./address`), `tabReducer`/`createInitialState`/`BLANK_URL` (`./tabs`), `toViewBounds` (`./geometry`), `createSuspendCounter` (`./suspend`), `buildExtractionScript`/`shapeExtraction`/`MAX_EXTRACT_CHARS` (`./extract`), `EMBEDDED_WEB_PREFERENCES`/`BROWSER_PARTITION`/`createNavigationGuard`/`createWindowOpenHandler`/`createPermissionHandlers` (`./handlers`), `createDownloadHandler` (`./downloads`), `logError` (`../log`).
+- Produces:
+  - `interface BrowserHost` — the full control surface (see below)
+  - `createBrowserHost(options: BrowserHostOptions): BrowserHost`
+
+**Verified against Electron 33.4.11's own typings before writing this task:**
+- `class WebContentsView extends View`
+- `View.setBounds(bounds: Rectangle)`, `View.setVisible(visible: boolean)`
+- `BrowserWindow.contentView: View`, `View.addChildView(view, index?)`, `View.removeChildView(view)`
+- `webContents.navigationHistory` is the current API. The top-level `webContents.canGoBack()` / `goBack()` are **deprecated** in this version — use `navigationHistory.canGoBack()` / `navigationHistory.goBack()`.
+
+This module is the only one in the phase that imports `electron`, and it deliberately contains no policy of its own — every decision it makes was already made and tested in Tasks 2–8.
+
+- [ ] **Step 1: Write the failing test**
+
+Create `src/main/browser/view.test.ts`:
+
+```ts
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import Database from 'better-sqlite3';
+
+type Listener = (...args: unknown[]) => void;
+
+class FakeWebContents {
+  listeners = new Map<string, Listener[]>();
+  loadedUrls: string[] = [];
+  windowOpenHandler: ((details: { url: string }) => unknown) | null = null;
+  executeResult: unknown = null;
+  executeError: Error | null = null;
+  closed = false;
+  title = 'Fake Page';
+  navigationHistory = { canGoBack: () => true, canGoForward: () => false, goBack: vi.fn(), goForward: vi.fn() };
+  reload = vi.fn();
+  stop = vi.fn();
+  findInPage = vi.fn();
+  stopFindInPage = vi.fn();
+
+  on(event: string, cb: Listener): this {
+    const existing = this.listeners.get(event) ?? [];
+    existing.push(cb);
+    this.listeners.set(event, existing);
+    return this;
+  }
+  setWindowOpenHandler(fn: (details: { url: string }) => unknown): void {
+    this.windowOpenHandler = fn;
+  }
+  loadURL(url: string): Promise<void> {
+    this.loadedUrls.push(url);
+    return Promise.resolve();
+  }
+  getURL(): string {
+    return this.loadedUrls[this.loadedUrls.length - 1] ?? 'about:blank';
+  }
+  getTitle(): string {
+    return this.title;
+  }
+  executeJavaScript(): Promise<unknown> {
+    if (this.executeError) return Promise.reject(this.executeError);
+    return Promise.resolve(this.executeResult);
+  }
+  close(): void {
+    this.closed = true;
+  }
+  emit(event: string, ...args: unknown[]): void {
+    for (const cb of this.listeners.get(event) ?? []) cb(...args);
+  }
+}
+
+const constructedOptions: unknown[] = [];
+
+class FakeWebContentsView {
+  webContents = new FakeWebContents();
+  bounds: unknown = null;
+  visible = false;
+  constructor(options: unknown) {
+    constructedOptions.push(options);
+  }
+  setBounds(bounds: unknown): void {
+    this.bounds = bounds;
+  }
+  setVisible(visible: boolean): void {
+    this.visible = visible;
+  }
+}
+
+const fakeSession = {
+  setPermissionRequestHandler: vi.fn(),
+  setPermissionCheckHandler: vi.fn(),
+  on: vi.fn(),
+  clearStorageData: vi.fn(async () => {}),
+  clearCache: vi.fn(async () => {}),
+};
+
+vi.mock('electron', () => ({
+  WebContentsView: class {
+    webContents: FakeWebContents;
+    bounds: unknown = null;
+    visible = false;
+    constructor(options: unknown) {
+      constructedOptions.push(options);
+      this.webContents = new FakeWebContents();
+    }
+    setBounds(bounds: unknown): void {
+      this.bounds = bounds;
+    }
+    setVisible(visible: boolean): void {
+      this.visible = visible;
+    }
+  },
+  session: { fromPartition: () => fakeSession },
+  app: { getPath: () => '/tmp/logs' },
+}));
+
+const { createBrowserHost } = await import('./view');
+
+function makeDb(): Database.Database {
+  const db = new Database(':memory:');
+  db.exec(`
+    create table browser_history (
+      url text not null, title text,
+      visited_at text not null default (datetime('now'))
+    );
+  `);
+  return db;
+}
+
+interface FakeView {
+  webContents: FakeWebContents;
+  bounds: unknown;
+  visible: boolean;
+}
+
+function makeHost() {
+  const added: FakeView[] = [];
+  const removed: FakeView[] = [];
+  const window = {
+    contentView: {
+      addChildView: (view: FakeView) => added.push(view),
+      removeChildView: (view: FakeView) => removed.push(view),
+    },
+  };
+  const db = makeDb();
+  const onStateChange = vi.fn();
+  const host = createBrowserHost({
+    window: window as never,
+    db,
+    downloadsDir: '/tmp/Downloads',
+    onStateChange,
+    confirmDownload: async () => false,
+  });
+  return { host, added, removed, db, onStateChange };
+}
+
+beforeEach(() => {
+  constructedOptions.length = 0;
+  vi.clearAllMocks();
+});
+
+describe('view construction', () => {
+  it('never passes a preload script to a WebContentsView', () => {
+    makeHost();
+    expect(constructedOptions.length).toBeGreaterThan(0);
+    for (const options of constructedOptions) {
+      const prefs = (options as { webPreferences: Record<string, unknown> }).webPreferences;
+      expect('preload' in prefs).toBe(false);
+    }
+  });
+
+  it('sandboxes and isolates every view, on the browser partition', () => {
+    makeHost();
+    const prefs = (constructedOptions[0] as { webPreferences: Record<string, unknown> }).webPreferences;
+    expect(prefs.sandbox).toBe(true);
+    expect(prefs.contextIsolation).toBe(true);
+    expect(prefs.nodeIntegration).toBe(false);
+    expect(prefs.partition).toBe('persist:browser');
+  });
+
+  it('starts with a single blank tab and adds its view to the window', () => {
+    const { host, added } = makeHost();
+    expect(host.getState().tabs).toHaveLength(1);
+    expect(added).toHaveLength(1);
+  });
+});
+
+describe('tabs', () => {
+  it('opens a tab, creates its view, and loads the url', () => {
+    const { host, added } = makeHost();
+    host.openTab('https://uncw.edu/');
+    expect(host.getState().tabs).toHaveLength(2);
+    expect(added).toHaveLength(2);
+    expect(added[1].webContents.loadedUrls).toContain('https://uncw.edu/');
+  });
+
+  it('resolves address-bar input rather than loading it verbatim', () => {
+    const { host, added } = makeHost();
+    host.navigate(host.getState().activeTabId, 'uncw.edu');
+    expect(added[0].webContents.loadedUrls).toContain('https://uncw.edu');
+  });
+
+  it('searches for non-url input', () => {
+    const { host, added } = makeHost();
+    host.navigate(host.getState().activeTabId, 'how to cite mla');
+    expect(added[0].webContents.loadedUrls.at(-1)).toContain('duckduckgo.com');
+  });
+
+  it('destroys the view when a tab closes', () => {
+    const { host, removed } = makeHost();
+    const opened = host.openTab('https://uncw.edu/');
+    host.closeTab(opened);
+    expect(removed).toHaveLength(1);
+    expect(host.getState().tabs).toHaveLength(1);
+  });
+
+  it('replaces the last tab with a fresh blank one, view included', () => {
+    const { host, added } = makeHost();
+    const only = host.getState().activeTabId;
+    host.closeTab(only);
+    expect(host.getState().tabs).toHaveLength(1);
+    expect(host.getState().tabs[0].id).not.toBe(only);
+    expect(added).toHaveLength(2);
+  });
+});
+
+describe('visibility', () => {
+  it('stays hidden until the browser route is active', () => {
+    const { host, added } = makeHost();
+    expect(added[0].visible).toBe(false);
+    host.setRouteActive(true);
+    expect(added[0].visible).toBe(true);
+  });
+
+  it('hides while an overlay is open and restores after', () => {
+    const { host, added } = makeHost();
+    host.setRouteActive(true);
+    host.suspend();
+    expect(added[0].visible).toBe(false);
+    host.resume();
+    expect(added[0].visible).toBe(true);
+  });
+
+  it('stays hidden after two suspends and one resume', () => {
+    const { host, added } = makeHost();
+    host.setRouteActive(true);
+    host.suspend();
+    host.suspend();
+    host.resume();
+    expect(added[0].visible).toBe(false);
+    host.resume();
+    expect(added[0].visible).toBe(true);
+  });
+
+  it('hides everything when the route goes away, even if not suspended', () => {
+    const { host, added } = makeHost();
+    host.setRouteActive(true);
+    host.setRouteActive(false);
+    expect(added[0].visible).toBe(false);
+  });
+
+  it('shows only the active tab', () => {
+    const { host, added } = makeHost();
+    host.setRouteActive(true);
+    host.openTab('https://uncw.edu/');
+    expect(added[0].visible).toBe(false);
+    expect(added[1].visible).toBe(true);
+  });
+
+  it('applies rounded, clamped bounds to the active view', () => {
+    const { host, added } = makeHost();
+    host.setRouteActive(true);
+    host.setBounds({ x: 12.4, y: -3, width: 640.5, height: 480.2 });
+    expect(added[0].bounds).toEqual({ x: 12, y: 0, width: 641, height: 480 });
+  });
+});
+
+describe('webContents events', () => {
+  it('records history on navigation', () => {
+    const { host, added, db } = makeHost();
+    const contents = added[0].webContents;
+    contents.emit('did-navigate', {}, 'https://uncw.edu/registrar');
+    const rows = db.prepare('select url from browser_history').all() as { url: string }[];
+    expect(rows.map((row) => row.url)).toEqual(['https://uncw.edu/registrar']);
+    expect(host.getState().tabs[0].url).toBe('https://uncw.edu/registrar');
+  });
+
+  it('does not record about:blank', () => {
+    const { added, db } = makeHost();
+    added[0].webContents.emit('did-navigate', {}, 'about:blank');
+    const count = db.prepare('select count(*) as n from browser_history').get() as { n: number };
+    expect(count.n).toBe(0);
+  });
+
+  it('surfaces a real load failure', () => {
+    const { host, added } = makeHost();
+    added[0].webContents.emit('did-fail-load', {}, -105, 'ERR_NAME_NOT_RESOLVED', 'https://nope.test/', true);
+    expect(host.getState().tabs[0].error).toEqual({ code: -105, description: 'ERR_NAME_NOT_RESOLVED' });
+  });
+
+  it('ignores ERR_ABORTED, which fires during ordinary navigation', () => {
+    const { host, added } = makeHost();
+    added[0].webContents.emit('did-fail-load', {}, -3, 'ERR_ABORTED', 'https://uncw.edu/', true);
+    expect(host.getState().tabs[0].error).toBeNull();
+  });
+
+  it('ignores subframe load failures', () => {
+    const { host, added } = makeHost();
+    added[0].webContents.emit('did-fail-load', {}, -105, 'ERR_NAME_NOT_RESOLVED', 'https://ads.test/', false);
+    expect(host.getState().tabs[0].error).toBeNull();
+  });
+
+  it('reports a crashed tab rather than letting it look blank', () => {
+    const { host, added } = makeHost();
+    added[0].webContents.emit('render-process-gone', {}, { reason: 'crashed' });
+    expect(host.getState().tabs[0].error?.description).toContain('crashed');
+  });
+
+  it('opens popups as tabs and always denies the window', () => {
+    const { host, added } = makeHost();
+    const result = added[0].webContents.windowOpenHandler?.({ url: 'https://uncw.edu/popup' });
+    expect(result).toEqual({ action: 'deny' });
+    expect(host.getState().tabs).toHaveLength(2);
+  });
+
+  it('denies a popup to a refused scheme without opening a tab', () => {
+    const { host, added } = makeHost();
+    const result = added[0].webContents.windowOpenHandler?.({ url: 'file:///etc/passwd' });
+    expect(result).toEqual({ action: 'deny' });
+    expect(host.getState().tabs).toHaveLength(1);
+  });
+
+  it('blocks navigation to a refused scheme', () => {
+    const { added } = makeHost();
+    const event = { preventDefault: vi.fn() };
+    added[0].webContents.emit('will-navigate', event, 'file:///etc/passwd');
+    expect(event.preventDefault).toHaveBeenCalledOnce();
+  });
+
+  it('allows ordinary https navigation', () => {
+    const { added } = makeHost();
+    const event = { preventDefault: vi.fn() };
+    added[0].webContents.emit('will-navigate', event, 'https://uncw.edu/');
+    expect(event.preventDefault).not.toHaveBeenCalled();
+  });
+});
+
+describe('session configuration', () => {
+  it('installs both permission handlers', () => {
+    makeHost();
+    expect(fakeSession.setPermissionRequestHandler).toHaveBeenCalledOnce();
+    expect(fakeSession.setPermissionCheckHandler).toHaveBeenCalledOnce();
+  });
+
+  it('listens for downloads', () => {
+    makeHost();
+    expect(fakeSession.on).toHaveBeenCalledWith('will-download', expect.any(Function));
+  });
+});
+
+describe('readPage', () => {
+  it('shapes a successful extraction', async () => {
+    const { host, added } = makeHost();
+    added[0].webContents.executeResult = {
+      title: 'Registrar',
+      text: 'Registration opens Monday.',
+      truncated: false,
+      isPdf: false,
+      hasBody: true,
+    };
+    const result = await host.readPage();
+    expect(result.status).toBe('ok');
+    expect(result.text).toBe('Registration opens Monday.');
+  });
+
+  it('reports not-loaded when the script throws', async () => {
+    const { host, added } = makeHost();
+    added[0].webContents.executeError = new Error('no frame');
+    const result = await host.readPage();
+    expect(result.status).toBe('not-loaded');
+  });
+
+  it('reports not-loaded for an unknown tab id', async () => {
+    const { host } = makeHost();
+    const result = await host.readPage('does-not-exist');
+    expect(result.status).toBe('not-loaded');
+  });
+});
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run: `npm test -- src/main/browser/view.test.ts`
+Expected: FAIL — `Failed to resolve import "./view"`.
+
+- [ ] **Step 3: Implement the module**
+
+Create `src/main/browser/view.ts`:
+
+```ts
+import { session, WebContentsView, type BaseWindow, type WebContents } from 'electron';
+import type Database from 'better-sqlite3';
+import { logError } from '../log';
+import { resolveAddressInput } from './address';
+import { createDownloadHandler, type DownloadItemLike, type DownloadRequest } from './downloads';
+import {
+  buildExtractionScript,
+  MAX_EXTRACT_CHARS,
+  shapeExtraction,
+  type PageExtract,
+  type RawExtraction,
+} from './extract';
+import { toViewBounds, type ViewportRect } from './geometry';
+import {
+  BROWSER_PARTITION,
+  createNavigationGuard,
+  createPermissionHandlers,
+  createWindowOpenHandler,
+  EMBEDDED_WEB_PREFERENCES,
+} from './handlers';
+import { recordVisit } from './history';
+import { createSuspendCounter } from './suspend';
+import { BLANK_URL, createInitialState, tabReducer, type TabAction, type TabState } from './tabs';
+
+/** Chromium's ERR_ABORTED. Fires during perfectly ordinary navigation --
+ *  clicking a link while a page is still loading, or a server redirect --
+ *  so surfacing it as an error would show a failure screen on healthy pages. */
+const ERR_ABORTED = -3;
+
+export interface BrowserHostOptions {
+  window: BaseWindow;
+  db: Database.Database;
+  downloadsDir: string;
+  onStateChange: (state: TabState) => void;
+  confirmDownload: (request: DownloadRequest) => Promise<boolean>;
+}
+
+export interface BrowserHost {
+  getState(): TabState;
+  openTab(url: string): string;
+  closeTab(id: string): void;
+  activateTab(id: string): void;
+  navigate(id: string, input: string): void;
+  goBack(id: string): void;
+  goForward(id: string): void;
+  reload(id: string): void;
+  stop(id: string): void;
+  find(id: string, text: string): void;
+  stopFind(id: string): void;
+  setBounds(rect: ViewportRect): void;
+  setRouteActive(active: boolean): void;
+  suspend(): void;
+  resume(): void;
+  resetSuspend(): void;
+  readPage(id?: string): Promise<PageExtract>;
+  destroy(): void;
+}
+
+/**
+ * Hosts one WebContentsView per tab.
+ *
+ * Contains no policy of its own: navigation rules, permission decisions,
+ * filename sanitization, address resolution, tab state, bounds maths and
+ * overlay suspension were all decided and tested in their own pure modules.
+ * What is left here is wiring, which is exactly the part that cannot be tested
+ * without Electron.
+ */
+export function createBrowserHost(options: BrowserHostOptions): BrowserHost {
+  const { window, db, downloadsDir, onStateChange, confirmDownload } = options;
+
+  const views = new Map<string, WebContentsView>();
+  const suspension = createSuspendCounter();
+  let routeActive = false;
+  let currentBounds: ViewportRect = { x: 0, y: 0, width: 0, height: 0 };
+  let idCounter = 0;
+
+  function nextId(): string {
+    idCounter += 1;
+    return `tab-${idCounter}`;
+  }
+
+  let state = createInitialState(nextId());
+
+  function note(context: string, detail: string): void {
+    logError(context, new Error(detail));
+  }
+
+  // ---- session -----------------------------------------------------------
+
+  const browserSession = session.fromPartition(BROWSER_PARTITION);
+
+  const permissions = createPermissionHandlers((permission) =>
+    note('browser:permission-denied', permission)
+  );
+  browserSession.setPermissionRequestHandler((contents, permission, callback) => {
+    permissions.requestHandler(contents, permission, callback);
+  });
+  browserSession.setPermissionCheckHandler((contents, permission) =>
+    permissions.checkHandler(contents, permission)
+  );
+
+  const handleDownload = createDownloadHandler({
+    downloadsDir,
+    confirm: confirmDownload,
+    onError: (error) => logError('browser:download', error),
+  });
+  browserSession.on('will-download', (_event, item) => {
+    handleDownload(item as unknown as DownloadItemLike);
+  });
+
+  // Deliberately NO certificate-error handler. Electron's default rejects
+  // invalid certificates, and the classic mistake is adding a handler that
+  // calls callback(true) to silence a development warning. Its absence here is
+  // the policy.
+
+  // ---- state -------------------------------------------------------------
+
+  function dispatch(action: TabAction): void {
+    const next = tabReducer(state, action);
+    if (next === state) return;
+    state = next;
+    syncViews();
+    onStateChange(state);
+  }
+
+  function wire(id: string, contents: WebContents): void {
+    const guard = createNavigationGuard((url) => note('browser:navigation-blocked', url));
+    contents.on('will-navigate', (event, url) => guard(event, url));
+    contents.on('will-redirect', (event, url) => guard(event, url));
+
+    contents.setWindowOpenHandler(
+      createWindowOpenHandler(
+        (url) => {
+          openTab(url);
+        },
+        (url) => note('browser:popup-blocked', url)
+      )
+    );
+
+    contents.on('did-start-loading', () => dispatch({ type: 'navigate-start', id }));
+    contents.on('did-stop-loading', () => dispatch({ type: 'load-end', id }));
+    contents.on('page-title-updated', (_event, title) => dispatch({ type: 'title', id, title }));
+
+    const committed = (url: string): void => {
+      dispatch({
+        type: 'navigate-committed',
+        id,
+        url,
+        canGoBack: contents.navigationHistory.canGoBack(),
+        canGoForward: contents.navigationHistory.canGoForward(),
+      });
+      if (url !== BLANK_URL) {
+        try {
+          recordVisit(db, url, contents.getTitle() || null);
+        } catch (error) {
+          logError('browser:recordVisit', error);
+        }
+      }
+    };
+    contents.on('did-navigate', (_event, url) => committed(url));
+    contents.on('did-navigate-in-page', (_event, url, isMainFrame) => {
+      if (isMainFrame) committed(url);
+    });
+
+    contents.on('did-fail-load', (_event, code, description, _url, isMainFrame) => {
+      if (!isMainFrame) return;
+      if (code === ERR_ABORTED) return;
+      dispatch({ type: 'load-failed', id, code, description });
+    });
+
+    contents.on('render-process-gone', (_event, details) => {
+      dispatch({ type: 'load-failed', id, code: -1, description: `This tab crashed (${details.reason})` });
+    });
+
+    contents.on('unresponsive', () => {
+      dispatch({ type: 'load-failed', id, code: -2, description: 'This page stopped responding' });
+    });
+  }
+
+  function createViewFor(id: string, url: string): WebContentsView {
+    const view = new WebContentsView({ webPreferences: { ...EMBEDDED_WEB_PREFERENCES } });
+    views.set(id, view);
+    window.contentView.addChildView(view);
+    wire(id, view.webContents);
+    void view.webContents.loadURL(url).catch((error) => logError('browser:loadURL', error));
+    return view;
+  }
+
+  function destroyView(id: string): void {
+    const view = views.get(id);
+    if (!view) return;
+    views.delete(id);
+    window.contentView.removeChildView(view);
+    try {
+      view.webContents.close();
+    } catch (error) {
+      logError('browser:closeView', error);
+    }
+  }
+
+  /** Reconciles the real views against the reducer's state. */
+  function syncViews(): void {
+    for (const tab of state.tabs) {
+      if (!views.has(tab.id)) createViewFor(tab.id, tab.url);
+    }
+    for (const id of [...views.keys()]) {
+      if (!state.tabs.some((tab) => tab.id === id)) destroyView(id);
+    }
+
+    const visible = routeActive && !suspension.isSuspended();
+    for (const [id, view] of views) {
+      const isActive = id === state.activeTabId;
+      view.setVisible(isActive && visible);
+      if (isActive) view.setBounds(toViewBounds(currentBounds));
+    }
+  }
+
+  function activeContents(id?: string): WebContents | null {
+    return views.get(id ?? state.activeTabId)?.webContents ?? null;
+  }
+
+  function openTab(url: string): string {
+    const id = nextId();
+    dispatch({ type: 'open', id, url });
+    return id;
+  }
+
+  syncViews();
+
+  return {
+    getState: () => state,
+    openTab,
+    closeTab: (id) => dispatch({ type: 'close', id, blankId: nextId() }),
+    activateTab: (id) => dispatch({ type: 'activate', id }),
+
+    navigate(id, input) {
+      const contents = activeContents(id);
+      if (!contents) return;
+      const url = resolveAddressInput(input);
+      void contents.loadURL(url).catch((error) => logError('browser:loadURL', error));
+    },
+
+    goBack: (id) => activeContents(id)?.navigationHistory.goBack(),
+    goForward: (id) => activeContents(id)?.navigationHistory.goForward(),
+    reload: (id) => activeContents(id)?.reload(),
+    stop: (id) => activeContents(id)?.stop(),
+    find: (id, text) => {
+      if (text.length > 0) activeContents(id)?.findInPage(text);
+    },
+    stopFind: (id) => activeContents(id)?.stopFindInPage('clearSelection'),
+
+    setBounds(rect) {
+      currentBounds = rect;
+      syncViews();
+    },
+    setRouteActive(active) {
+      routeActive = active;
+      syncViews();
+    },
+    suspend() {
+      suspension.acquire();
+      syncViews();
+    },
+    resume() {
+      suspension.release();
+      syncViews();
+    },
+    resetSuspend() {
+      suspension.reset();
+      syncViews();
+    },
+
+    async readPage(id) {
+      const targetId = id ?? state.activeTabId;
+      const contents = views.get(targetId)?.webContents;
+      const fallbackUrl = state.tabs.find((tab) => tab.id === targetId)?.url ?? '';
+      if (!contents) return shapeExtraction(null, fallbackUrl);
+      try {
+        const raw = (await contents.executeJavaScript(
+          buildExtractionScript(MAX_EXTRACT_CHARS),
+          true
+        )) as RawExtraction | null;
+        return shapeExtraction(raw, contents.getURL());
+      } catch (error) {
+        logError('browser:readPage', error);
+        return shapeExtraction(null, fallbackUrl);
+      }
+    },
+
+    destroy() {
+      for (const id of [...views.keys()]) destroyView(id);
+    },
+  };
+}
+```
+
+- [ ] **Step 4: Run the tests to verify they pass**
+
+Run: `npm test -- src/main/browser/view.test.ts`
+Expected: PASS — 3 construction tests, 5 tab tests, 6 visibility tests, 9 event tests, 2 session tests, 3 readPage tests.
+
+- [ ] **Step 5: Run the whole suite and typecheck**
+
+Run: `npm test && npm run typecheck && npm run lint`
+Expected: PASS, no type errors, no lint errors.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/main/browser/view.ts src/main/browser/view.test.ts
+git commit -m "Add WebContentsView host wiring tabs, security handlers, and extraction"
+```
+
+---
