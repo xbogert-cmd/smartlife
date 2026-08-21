@@ -263,6 +263,46 @@ describe('syncAll', () => {
     expect(db.prepare('select count(*) as n from google_events').get()).toEqual({ n: 1 });
   });
 
+  it('does not delete a row when its synced_at equals the sync timestamp (tie-breaks correctly with <, not <=)', async () => {
+    // Regression test for https://github.com/...
+    // A sync running at the exact same timestamp as an existing row must not
+    // delete that row, even if the sync's fetch hasn't yet caught up with the
+    // event. The fix: replaceWindow's delete must use synced_at < ? (strict),
+    // never synced_at <= ?. With <=, a row stamped at t could be deleted by a
+    // sync also at t, silently undoing the write that just landed.
+    const { syncAll } = await import('./sync');
+    const db = makeDb();
+    const TIE_TIME = '2026-08-20T12:00:00.000Z';
+
+    // Seed a row with synced_at exactly equal to the sync's own timestamp.
+    // This simulates a direct write (e.g., upsertEvent) and its immediate
+    // follow-up resync both using the same 'now' timestamp.
+    db.prepare("insert into google_calendars (id, summary) values (?, ?)").run(
+      'me@example.com',
+      'Personal'
+    );
+    db.prepare(
+      `insert into google_events (calendar_id, id, summary, start_at, end_at, is_all_day, synced_at)
+       values (?, ?, ?, ?, ?, ?, ?)`
+    ).run('me@example.com', 'seeded', 'Seeded Event', '2026-08-21T14:00:00Z', '2026-08-21T15:00:00Z', 0, TIE_TIME);
+
+    // Verify it's there before the sync.
+    expect(db.prepare('select count(*) as n from google_events').get()).toEqual({ n: 1 });
+
+    // Mock the sync's fetch to return nothing (simulating Google's response not
+    // yet reflecting the event that was just written).
+    vi.mocked(listEvents).mockResolvedValue([] as never);
+
+    // Run syncAll with the exact same timestamp as the seeded row.
+    await syncAll(db, new Date(TIE_TIME));
+
+    // The row must survive. With synced_at < ? this passes (the condition is
+    // false: TIE_TIME is not less than TIE_TIME). With synced_at <= ? it fails
+    // (the condition is true, and the row gets deleted).
+    const rows = db.prepare('select id from google_events').all() as Array<{ id: string }>;
+    expect(rows).toEqual([{ id: 'seeded' }]);
+  });
+
   it('drops calendars Google no longer returns, cascading their events', async () => {
     const { syncAll } = await import('./sync');
     const db = makeDb();
