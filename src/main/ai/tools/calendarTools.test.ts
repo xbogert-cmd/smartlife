@@ -101,6 +101,25 @@ describe('calendar_list_events', () => {
     );
     expect(output).toMatch(/nothing/i);
   });
+
+  it("includes today's local date and the enabled calendar list, even with zero events", async () => {
+    vi.useFakeTimers();
+    // Local midday, well clear of any UTC-offset date boundary.
+    vi.setSystemTime(new Date(2026, 7, 20, 12, 0, 0));
+    try {
+      const output = await calendarListEventsTool.run(
+        { start: '2026-09-01', end: '2026-09-07' },
+        ctx(makeDb(), 'ask')
+      );
+      // Without this, an empty-range answer gives the model no calendarId to
+      // create against and no sense of "today" to build a start time from.
+      expect(output).toContain('2026-08-20');
+      expect(output).toContain('Personal');
+      expect(output).toContain('cal-1');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe('calendar_create_event', () => {

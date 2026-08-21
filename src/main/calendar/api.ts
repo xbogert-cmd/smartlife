@@ -68,6 +68,12 @@ export function listEvents(
   });
 }
 
+// sendUpdates=all is set on every write below: Google defaults to sending no
+// notifications at all, and the confirmation copy the user sees before every
+// create/update/delete promises guests "will be notified by email." Without
+// this, that promise is a lie. Harmless when an event has no attendees --
+// Google just has nothing to send.
+
 export async function createEvent(
   db: Database.Database,
   calendarId: string,
@@ -76,7 +82,7 @@ export async function createEvent(
   const created = await googleRequest<GoogleEvent>(
     db,
     `/calendars/${encodeURIComponent(calendarId)}/events`,
-    { method: 'POST', body: event }
+    { method: 'POST', body: event, query: { sendUpdates: 'all' } }
   );
   if (created === null) throw new Error('Google returned no event.');
   return created;
@@ -92,7 +98,11 @@ export async function updateEvent(
   const updated = await googleRequest<GoogleEvent>(
     db,
     `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
-    { method: 'PUT', body: event, etag }
+    // PATCH (events.patch), not PUT (events.update): PUT replaces the whole
+    // event resource, so any field this app doesn't send -- attendees,
+    // description, conference data -- gets cleared on Google's side. PATCH is
+    // a genuine partial update where an omitted field is preserved.
+    { method: 'PATCH', body: event, etag, query: { sendUpdates: 'all' } }
   );
   if (updated === null) throw new Error('Google returned no event.');
   return updated;
@@ -106,6 +116,6 @@ export async function deleteEvent(
   await googleRequest(
     db,
     `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
-    { method: 'DELETE' }
+    { method: 'DELETE', query: { sendUpdates: 'all' } }
   );
 }

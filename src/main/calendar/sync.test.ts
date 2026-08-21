@@ -355,6 +355,33 @@ describe('syncAll', () => {
   });
 });
 
+describe('stale-sync race protection', () => {
+  it('does not delete a row a newer concurrent write already landed while this sync was in flight', async () => {
+    const { syncOneCalendar } = await import('./sync');
+    const db = makeDb();
+    db.prepare("insert into google_calendars (id, summary) values ('cal-1','Personal')").run();
+
+    const STALE_NOW = new Date('2026-08-20T12:00:00.000Z');
+    // A write that landed (via the single-event upsert) after this sync's own
+    // syncedAt stamp -- simulating a write racing ahead of an in-flight sync
+    // that started earlier but resolves later.
+    const NEWER_SYNCED_AT = '2026-08-20T12:05:00.000Z';
+    db.prepare(
+      `insert into google_events (calendar_id, id, summary, start_at, end_at, synced_at)
+       values ('cal-1','concurrent','Written mid-sync','2026-08-25T10:00:00Z','2026-08-25T11:00:00Z', ?)`
+    ).run(NEWER_SYNCED_AT);
+
+    // The stale sync's fetch reflects Google's state before the concurrent
+    // write, so it does not include the new event.
+    vi.mocked(listEvents).mockResolvedValue([] as never);
+
+    await syncOneCalendar(db, 'cal-1', STALE_NOW);
+
+    const row = db.prepare('select id from google_events where id = ?').get('concurrent');
+    expect(row).toBeDefined();
+  });
+});
+
 describe('syncOneCalendar', () => {
   it('refetches only the named calendar', async () => {
     const { syncAll, syncOneCalendar } = await import('./sync');

@@ -9,7 +9,7 @@ import {
   GoogleRateLimitError,
 } from './errors';
 import { getEvent } from './queries';
-import { syncOneCalendar } from './sync';
+import { deleteEventRow, syncOneCalendar, upsertEvent } from './sync';
 
 export interface EventDraft {
   calendarId: string;
@@ -85,6 +85,11 @@ export async function createCalendarEvent(
 
   try {
     const created = await api.createEvent(db, draft.calendarId, toGoogleInput(draft));
+    // Upsert the API's own response directly first: it's already the
+    // authoritative, fully-normalized record, so the local mirror reflects
+    // the write immediately even if the event falls outside the rolling
+    // sync window that `resync` refetches (e.g. an event months out).
+    upsertEvent(db, draft.calendarId, created, now.toISOString());
     await resync(db, draft.calendarId, now);
     return { ok: true, eventId: created.id };
   } catch (error) {
@@ -109,13 +114,16 @@ export async function updateCalendarEvent(
   try {
     // If-Match with the stored etag: without it, this overwrites whatever
     // another client (a phone, the web UI) wrote since the last sync.
-    await api.updateEvent(
+    const updated = await api.updateEvent(
       db,
       draft.calendarId,
       eventId,
       toGoogleInput(draft),
       existing.etag ?? undefined
     );
+    // Same reasoning as create: upsert the authoritative response directly
+    // so a move to a date outside the sync window still shows up locally.
+    upsertEvent(db, draft.calendarId, updated, now.toISOString());
     await resync(db, draft.calendarId, now);
     return { ok: true, eventId };
   } catch (error) {
@@ -140,6 +148,10 @@ export async function deleteCalendarEvent(
       return { ok: false, error: describeError(error) };
     }
   }
+  // Remove the row directly rather than relying solely on the window
+  // resync: an event outside the sync window would never be touched by
+  // resync's delete-and-reinsert, and would appear to still exist locally.
+  deleteEventRow(db, calendarId, eventId);
   await resync(db, calendarId, now);
   return { ok: true };
 }

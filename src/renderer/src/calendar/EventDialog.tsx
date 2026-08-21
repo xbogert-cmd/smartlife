@@ -46,13 +46,17 @@ export function EventDialog({
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   function buildDraft(): EventDraft {
+    // Always send location, even as ''. The write now goes through as a
+    // PATCH, where an omitted field is PRESERVED rather than cleared -- so
+    // if a cleared location were omitted here, the old value would survive
+    // on Google's side forever.
     if (isAllDay) {
       const startDate = toDateInputValue(startValue);
       const endDate = toDateInputValue(endValue);
       return {
         calendarId,
         summary,
-        location: location.length > 0 ? location : undefined,
+        location,
         isAllDay: true,
         startAt: startDate,
         // Google's all-day end is exclusive, so a single-day event ends the
@@ -63,7 +67,7 @@ export function EventDialog({
     return {
       calendarId,
       summary,
-      location: location.length > 0 ? location : undefined,
+      location,
       isAllDay: false,
       startAt: fromDateTimeInputValue(startValue),
       endAt: fromDateTimeInputValue(endValue),

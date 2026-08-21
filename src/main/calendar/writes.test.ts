@@ -212,6 +212,20 @@ describe('updateCalendarEvent', () => {
     expect(result.ok).toBe(false);
     expect(updateEvent).not.toHaveBeenCalled();
   });
+
+  it('does not send an attendees key when the draft has none', async () => {
+    const { updateCalendarEvent } = await import('./writes');
+    const db = makeDb();
+    seedEvent(db, '"etag-1"');
+
+    await updateCalendarEvent(db, 'evt-1', DRAFT, NOW);
+
+    // A future accidental revert of updateEvent to full-replace (PUT)
+    // semantics would silently wipe attendees/description on Google's side
+    // for every draft that doesn't carry them -- this must fail loudly.
+    const body = vi.mocked(updateEvent).mock.calls[0][3];
+    expect(body).not.toHaveProperty('attendees');
+  });
 });
 
 describe('deleteCalendarEvent', () => {
@@ -233,5 +247,82 @@ describe('deleteCalendarEvent', () => {
     // be pedantic and confusing.
     const result = await deleteCalendarEvent(makeDb(), 'cal-1', 'evt-1', NOW);
     expect(result.ok).toBe(true);
+  });
+
+  it('removes the row directly, not only via the window resync', async () => {
+    const { deleteCalendarEvent } = await import('./writes');
+    const db = makeDb();
+    // 300 days out -- outside the sync window, so the window-based
+    // delete-and-reinsert in replaceWindow would never touch this row.
+    db.prepare(
+      `insert into google_events (calendar_id, id, summary, start_at, end_at)
+       values ('cal-1','future-evt','Future','2027-06-16T10:00:00Z','2027-06-16T11:00:00Z')`
+    ).run();
+
+    await deleteCalendarEvent(db, 'cal-1', 'future-evt', NOW);
+
+    const row = db.prepare('select 1 from google_events where id = ?').get('future-evt');
+    expect(row).toBeUndefined();
+  });
+});
+
+describe('out-of-window writes still land in the local mirror', () => {
+  const FAR_FUTURE_START = '2027-06-16T10:00:00.000Z'; // ~300 days past NOW
+  const FAR_FUTURE_END = '2027-06-16T11:00:00.000Z';
+
+  it('createCalendarEvent upserts the new event even though the sync window would miss it', async () => {
+    const { createCalendarEvent } = await import('./writes');
+    const db = makeDb();
+    vi.mocked(createEvent).mockResolvedValue({
+      id: 'future-1',
+      summary: 'Far future event',
+      start: { dateTime: FAR_FUTURE_START },
+      end: { dateTime: FAR_FUTURE_END },
+    } as never);
+    // The post-write resync's window fetch legitimately finds nothing this
+    // far out -- it must not be the only path that gets the event stored.
+    vi.mocked(listEvents).mockResolvedValue([] as never);
+
+    const result = await createCalendarEvent(
+      db,
+      { ...DRAFT, startAt: FAR_FUTURE_START, endAt: FAR_FUTURE_END },
+      NOW
+    );
+
+    expect(result.ok).toBe(true);
+    const row = db.prepare('select summary from google_events where id = ?').get('future-1') as
+      | { summary: string }
+      | undefined;
+    expect(row?.summary).toBe('Far future event');
+  });
+
+  it('updateCalendarEvent upserts the moved event even though the sync window would miss it', async () => {
+    const { updateCalendarEvent } = await import('./writes');
+    const db = makeDb();
+    db.prepare(
+      `insert into google_events (calendar_id, id, summary, start_at, end_at, etag)
+       values ('cal-1','evt-1','Old','2026-08-21T14:00:00Z','2026-08-21T15:00:00Z','"etag-1"')`
+    ).run();
+    vi.mocked(updateEvent).mockResolvedValue({
+      id: 'evt-1',
+      summary: 'Moved way out',
+      start: { dateTime: FAR_FUTURE_START },
+      end: { dateTime: FAR_FUTURE_END },
+    } as never);
+    vi.mocked(listEvents).mockResolvedValue([] as never);
+
+    const result = await updateCalendarEvent(
+      db,
+      'evt-1',
+      { ...DRAFT, startAt: FAR_FUTURE_START, endAt: FAR_FUTURE_END },
+      NOW
+    );
+
+    expect(result.ok).toBe(true);
+    const row = db.prepare('select summary, start_at from google_events where id = ?').get('evt-1') as
+      | { summary: string; start_at: string }
+      | undefined;
+    expect(row?.summary).toBe('Moved way out');
+    expect(row?.start_at).toBe(FAR_FUTURE_START);
   });
 });

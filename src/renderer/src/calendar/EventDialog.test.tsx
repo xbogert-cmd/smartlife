@@ -140,6 +140,27 @@ describe('EventDialog edit mode', () => {
     await waitFor(() => expect(calendar.deleteEvent).toHaveBeenCalledWith('cal-1', 'evt-1'));
   });
 
+  it('sends an explicit empty location when the field is cleared, not omitted', async () => {
+    render(
+      <EventDialog
+        calendars={CALENDARS}
+        event={existing({ location: 'Room 5' })}
+        onClose={() => {}}
+        onSaved={() => {}}
+      />
+    );
+
+    fireEvent.change(screen.getByLabelText('Location'), { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(calendar.updateEvent).toHaveBeenCalledTimes(1));
+    const draft = calendar.updateEvent.mock.calls[0][1];
+    // updateEvent is now a PATCH: an omitted field is PRESERVED, not cleared,
+    // so clearing the location has to send an explicit empty string or the
+    // old location survives on Google's side forever.
+    expect(draft.location).toBe('');
+  });
+
   it('does not offer delete in create mode', () => {
     render(
       <EventDialog calendars={CALENDARS} slotStart={new Date()} onClose={() => {}} onSaved={() => {}} />

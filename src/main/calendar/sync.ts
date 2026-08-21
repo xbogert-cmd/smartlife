@@ -68,7 +68,7 @@ export function syncWindow(now: Date = new Date()): {
   };
 }
 
-interface EventRowValues {
+export interface EventRowValues {
   calendar_id: string;
   id: string;
   summary: string | null;
@@ -92,7 +92,7 @@ interface EventRowValues {
  * Returns null for anything unusable: a cancelled event, or one with neither a
  * dateTime nor a date. Both are cheaper to skip than to represent.
  */
-function normalizeEvent(
+export function normalizeEvent(
   calendarId: string,
   event: GoogleEvent,
   syncedAt: string
@@ -179,15 +179,8 @@ function upsertCalendars(
   run(calendars);
 }
 
-function replaceWindow(
-  db: Database.Database,
-  calendarId: string,
-  rows: EventRowValues[],
-  deleteMin: string,
-  deleteMax: string
-): void {
-  const insert = db.prepare(
-    `insert into google_events (
+const UPSERT_SQL = (whereClause: string): string => `
+     insert into google_events (
        calendar_id, id, summary, description, location, start_at, end_at, is_all_day,
        status, html_link, organizer_email, has_guests, guest_count, recurring_event_id,
        etag, updated_at, synced_at
@@ -195,16 +188,83 @@ function replaceWindow(
        @calendar_id, @id, @summary, @description, @location, @start_at, @end_at, @is_all_day,
        @status, @html_link, @organizer_email, @has_guests, @guest_count, @recurring_event_id,
        @etag, @updated_at, @synced_at
-     )`
-  );
+     )
+     on conflict(calendar_id, id) do update set
+       summary = excluded.summary, description = excluded.description, location = excluded.location,
+       start_at = excluded.start_at, end_at = excluded.end_at, is_all_day = excluded.is_all_day,
+       status = excluded.status, html_link = excluded.html_link, organizer_email = excluded.organizer_email,
+       has_guests = excluded.has_guests, guest_count = excluded.guest_count,
+       recurring_event_id = excluded.recurring_event_id, etag = excluded.etag,
+       updated_at = excluded.updated_at, synced_at = excluded.synced_at
+     ${whereClause}`;
+
+/**
+ * Unconditional upsert: the caller's data always wins. Used for a direct
+ * write's own response, which is definitionally the newest truth for that
+ * record at the moment it's written -- there is nothing it needs to defer to.
+ */
+const upsertRowUnconditional = (db: Database.Database) => db.prepare(UPSERT_SQL(''));
+
+/**
+ * Upsert guarded by recency: only overwrites when the incoming row is at
+ * least as fresh as what's already there. Used for a sync's reinsert, which
+ * can legitimately be racing a newer direct write (see replaceWindow) -- a
+ * stale sync must never clobber a newer write it raced against, only avoid
+ * crashing into it with a UNIQUE violation.
+ */
+const upsertRowIfNotStale = (db: Database.Database) =>
+  db.prepare(UPSERT_SQL('where excluded.synced_at >= google_events.synced_at'));
+
+/**
+ * Upserts one Google event straight into the local mirror. Used right after
+ * a create/update write: the API response is already the authoritative,
+ * fully-normalized record, so this lands it locally immediately regardless
+ * of whether the event falls inside the rolling sync window (a window sync
+ * can be days away from ever refetching it).
+ */
+export function upsertEvent(
+  db: Database.Database,
+  calendarId: string,
+  event: GoogleEvent,
+  syncedAt: string
+): void {
+  const row = normalizeEvent(calendarId, event, syncedAt);
+  if (row === null) return;
+  upsertRowUnconditional(db).run(row);
+}
+
+/** Removes one event row directly, for a delete that may be outside the sync window. */
+export function deleteEventRow(db: Database.Database, calendarId: string, eventId: string): void {
+  db.prepare('delete from google_events where calendar_id = ? and id = ?').run(calendarId, eventId);
+}
+
+function replaceWindow(
+  db: Database.Database,
+  calendarId: string,
+  rows: EventRowValues[],
+  deleteMin: string,
+  deleteMax: string,
+  syncedAt: string
+): void {
+  const insert = upsertRowIfNotStale(db);
 
   // Delete-then-insert instead of diffing: an event deleted in Google is
   // simply absent from the response, so it disappears here with no tombstone
   // bookkeeping. Correct by construction. Rows outside the window survive.
+  //
+  // `synced_at <= syncedAt` guards against a race: this fetch may have been
+  // in flight for a while, so a concurrent write's direct upsertEvent() call
+  // can land (stamped with its OWN, later synced_at) before this delete
+  // runs. Scoping the delete to rows stamped no later than THIS sync's own
+  // stamp means it can never delete a row a strictly newer write just
+  // landed. ponytail: a write racing in at the exact same millisecond as
+  // this sync's own stamp is (correctly, if rarely) not protected -- upgrade
+  // to a monotonic counter instead of wall-clock timestamps if that ever
+  // matters in practice.
   const run = db.transaction((events: EventRowValues[]) => {
     db.prepare(
-      'delete from google_events where calendar_id = ? and start_at >= ? and start_at < ?'
-    ).run(calendarId, deleteMin, deleteMax);
+      'delete from google_events where calendar_id = ? and start_at >= ? and start_at < ? and synced_at <= ?'
+    ).run(calendarId, deleteMin, deleteMax, syncedAt);
     for (const event of events) insert.run(event);
   });
 
@@ -217,12 +277,14 @@ async function syncCalendarEvents(
   now: Date
 ): Promise<number> {
   const { timeMin, timeMax, deleteMin, deleteMax } = syncWindow(now);
-  const events = await api.listEvents(db, calendarId, timeMin, timeMax);
+  // Captured before the await: this is this sync run's own stamp, fixed at
+  // the moment it started, not whenever the network call happens to resolve.
   const syncedAt = now.toISOString();
+  const events = await api.listEvents(db, calendarId, timeMin, timeMax);
   const rows = events
     .map((event) => normalizeEvent(calendarId, event, syncedAt))
     .filter((row): row is EventRowValues => row !== null);
-  replaceWindow(db, calendarId, rows, deleteMin, deleteMax);
+  replaceWindow(db, calendarId, rows, deleteMin, deleteMax, syncedAt);
   return rows.length;
 }
 
