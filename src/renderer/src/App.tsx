@@ -9,6 +9,7 @@ import { AI } from './routes/AI';
 import { School } from './routes/School';
 import { Course } from './routes/Course';
 import { Calendar } from './routes/Calendar';
+import { Browser } from './routes/Browser';
 import { ComingSoon } from './routes/ComingSoon';
 import { AIOverlay } from './ai/AIOverlay';
 import { CommandPalette } from './command-palette/CommandPalette';
@@ -52,13 +53,15 @@ function Shell() {
           <Route path="/school" element={<School />} />
           <Route path="/school/course/:courseId" element={<Course />} />
           <Route path="/calendar" element={<Calendar />} />
+          <Route path="/browser" element={<Browser />} />
           {NAV_SECTIONS.filter(
             (section) =>
               section.path !== '/' &&
               section.path !== '/settings' &&
               section.path !== '/ai' &&
               section.path !== '/school' &&
-              section.path !== '/calendar'
+              section.path !== '/calendar' &&
+              section.path !== '/browser'
           ).map((section) => (
             <Route key={section.slug} path={section.path} element={<ComingSoon label={section.label} />} />
           ))}
