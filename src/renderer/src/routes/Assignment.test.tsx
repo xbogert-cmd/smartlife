@@ -95,7 +95,10 @@ describe('Assignment route', () => {
   });
 
   it('requests the assignment id from the route', async () => {
+    getAssignment.mockImplementation((requestedId: number) =>
+      Promise.resolve(requestedId === 42 ? detail({ name: 'Right One' }) : detail({ name: 'Wrong One' }))
+    );
     renderAt(42);
-    await waitFor(() => expect(getAssignment).toHaveBeenCalledWith(42));
+    expect(await screen.findByRole('heading', { name: 'Right One' })).toBeTruthy();
   });
 });
