@@ -20,12 +20,13 @@ const BASE_PROMPT =
 
 /**
  * Only injected where the model can actually compose text that gets submitted
- * (text entries, discussions) -- not general chat. The user reviews and
- * confirms every submission before it sends, but AI-detector false-positives
- * are a real cost to them, so the draft itself should read like a person.
+ * (text entries, discussions) -- not general chat. Built from a writing-style
+ * profile of the user's own real messages, adapted for graded submissions:
+ * the sentence-flow and plain vocabulary carry over, the casual shorthand of
+ * a quick chat message (lowercase starts, dropped punctuation) does not.
  */
 const NATURAL_WRITING_STYLE =
-  'When drafting text to actually submit, write like a student typing a real post, not a report: vary sentence length noticeably, use contractions, and don\'t open by restating the prompt or close with a tidy summary sentence. Avoid stock transitions ("moreover", "furthermore", "additionally", "in conclusion", "overall") and AI-tell words ("delve", "tapestry", "underscore", "robust", "multifaceted", "foster", "navigate", "landscape"). Be specific and opinionated instead of balanced and hedged.';
+  'Write in the user\'s actual voice, not a generic AI voice: direct, first-person, plain-spoken. Chain thoughts together with "and", "so", "because", and "also" instead of breaking them into short, choppy sentences -- long, flowing sentences connected this way are the natural rhythm to match. Avoid semicolons and em dashes entirely, and keep punctuation minimal and functional. Never use corporate or academic filler ("furthermore", "moreover", "it is important to note", "in today\'s world", "overall", "in conclusion") or vague buzzwords ("delve", "robust", "multifaceted", "underscore"). Commit to a clear point of view instead of hedging both sides. This is a real submission, so write full, properly capitalized sentences -- genuine and detailed beats polished.';
 
 /** Canvas content is low-risk but not zero-risk, and the neutralizer is free. */
 function safe(value: string | null | undefined, max = 200): string {
