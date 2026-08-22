@@ -369,19 +369,23 @@ callers, and removing it would be a regression the moment a third modal appears.
 ### Ambient view context
 
 The renderer reports a structured descriptor of what the user is currently
-looking at; the main process folds it into the system prompt on each turn. This
-reuses the mechanism Phase 4 introduced when it gave the chat agent a clock.
+looking at; the main process folds it into the system prompt on each turn.
+
+**There is currently no system prompt at all.** `claudeProvider.streamTurn` calls
+`client.beta.messages.toolRunner` with no `system` parameter, so this phase
+introduces one rather than extending something existing. `AIProvider.streamTurn`
+gains a `system: string` parameter, and the prompt is assembled main-side from
+the view context plus the current date — the model has had neither until now.
 
 The descriptor is **structured data, not prose**, and the main process renders
 it. The renderer cannot inject arbitrary system-prompt text.
 
 ```
 type ViewContext =
-  | { route: 'home' | 'settings' | 'school' }
+  | { route: 'home' | 'settings' | 'school' | 'ai' | 'browser' }
   | { route: 'course'; courseId: number }
   | { route: 'assignment'; assignmentId: number }
   | { route: 'calendar'; selectedEventId?: string }
-  | { route: 'browser'; activeTabOrigin: string | null }
 ```
 
 Rendering rules, and the security boundary they encode:
@@ -396,7 +400,10 @@ Rendering rules, and the security boundary they encode:
   low-risk, but the neutralizer is already written and applying it costs
   nothing.
 - **Browser context contributes the active tab's origin and nothing else** — no
-  page title, no URL path, no body text. Page titles are attacker-controlled,
+  page title, no URL path, no body text. The renderer does not even send the
+  origin: it sends `{ route: 'browser' }`, and the main process reads the active
+  tab's URL from the live browser host and reduces it to an origin itself. The
+  renderer never handles the value, so it cannot shape it. Page titles are attacker-controlled,
   and a hostile title reaching the *system prompt* would be strictly worse than
   the fenced tool output Phase 5 built specifically to contain it. Instead the
   context tells the model the browser is open and that `browser_read_page` will
