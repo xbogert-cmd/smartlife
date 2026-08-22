@@ -1,5 +1,11 @@
+import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useAssignment } from '../assignment/useAssignment';
+import { FileUploadPanel } from '../assignment/FileUploadPanel';
+import { HandoffPanel } from '../assignment/HandoffPanel';
+import { SubmitConfirm } from '../assignment/SubmitConfirm';
+import { TextEntryPanel } from '../assignment/TextEntryPanel';
+import type { PickedFile, SubmitInput } from '../assignment/types';
 import { sanitizeHtml } from '../school/sanitizeHtml';
 import { formatDue } from '../school/formatters';
 import { SCHOOL_ACCENT } from '../school/types';
@@ -28,7 +34,15 @@ function StatusLine({
 export function Assignment(): React.JSX.Element {
   const { assignmentId } = useParams();
   const id = Number(assignmentId);
-  const { detail, loaded } = useAssignment(id);
+  const { detail, loaded, submitting, outcome, submit } = useAssignment(id);
+  const [pending, setPending] = useState<{ input: SubmitInput; file?: PickedFile } | null>(null);
+
+  // Assignment does not remount across route param changes (React Router
+  // reuses the element), so a pending confirmation from a previously viewed
+  // assignment must not survive the navigation to a new one.
+  useEffect(() => {
+    setPending(null);
+  }, [id]);
 
   if (!loaded) {
     return <div className="p-8" style={{ color: 'var(--color-text-muted)' }}>Loading…</div>;
@@ -84,15 +98,84 @@ export function Assignment(): React.JSX.Element {
           />
         )}
 
-        {/* Tasks 18-20 replace this block with the real per-path panels. */}
-        <div className="mt-6" data-testid="submission-region">
-          {detail.path.kind === 'handoff' && <p>This assignment is completed in the browser.</p>}
-          {detail.path.kind === 'none' && <p>This assignment does not take a submission.</p>}
-          {(detail.path.kind === 'text' || detail.path.kind === 'discussion') && <p>Text submission.</p>}
-          {detail.path.kind === 'file' && <p>File submission.</p>}
-          {detail.path.kind === 'text-or-file' && <p>Text or file submission.</p>}
+        <div
+          className="mt-6 flex min-h-0 flex-1 flex-col"
+          data-testid="submission-region"
+          // Forces a fresh mount of every panel below when the route's
+          // assignmentId changes without unmounting Assignment itself
+          // (React Router re-renders the same element across param changes).
+          // Without this, TextEntryPanel's local text/dirty state and
+          // FileUploadPanel's local file state would carry over from the
+          // previous assignment. See Task 18's review note on TextEntryPanel.
+          key={detail.id}
+        >
+          {detail.path.kind === 'handoff' && (
+            <HandoffPanel htmlUrl={detail.htmlUrl} reason={detail.path.reason} />
+          )}
+
+          {detail.path.kind === 'none' && (
+            <p style={{ color: 'var(--color-text-muted)' }}>
+              This assignment does not take a submission.
+            </p>
+          )}
+
+          {(detail.path.kind === 'text' ||
+            detail.path.kind === 'text-or-file' ||
+            detail.path.kind === 'discussion') && (
+            <TextEntryPanel
+              assignmentId={detail.id}
+              initialDraft={detail.draft}
+              isDiscussion={detail.path.kind === 'discussion'}
+              disabled={submitting}
+              onSubmit={(body) =>
+                setPending({
+                  input:
+                    detail.path.kind === 'discussion'
+                      ? { kind: 'discussion', message: body }
+                      : { kind: 'text', body },
+                })
+              }
+            />
+          )}
+
+          {(detail.path.kind === 'file' || detail.path.kind === 'text-or-file') && (
+            <div className={detail.path.kind === 'text-or-file' ? 'mt-6' : ''}>
+              <FileUploadPanel
+                disabled={submitting}
+                onSubmit={(file) => setPending({ input: { kind: 'file', filePath: file.path }, file })}
+              />
+            </div>
+          )}
+
+          {outcome !== null && (
+            <p
+              className="mt-4 text-sm"
+              // A failure and an unconfirmed submission both need announcing;
+              // a confirmed success does not interrupt.
+              role={outcome.ok && outcome.verified ? undefined : 'alert'}
+              style={{ color: outcome.ok ? 'var(--color-text)' : '#EF4444' }}
+            >
+              {outcome.message}
+            </p>
+          )}
         </div>
       </div>
+
+      {pending !== null && (
+        <SubmitConfirm
+          assignmentName={detail.name}
+          input={pending.input}
+          isDiscussion={pending.input.kind === 'discussion'}
+          fileName={pending.file?.name}
+          fileSize={pending.file?.size}
+          onCancel={() => setPending(null)}
+          onConfirm={() => {
+            const input = pending.input;
+            setPending(null);
+            void submit(input);
+          }}
+        />
+      )}
     </div>
   );
 }
