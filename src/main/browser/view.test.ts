@@ -97,27 +97,32 @@ interface FakeView {
   visible: boolean;
 }
 
-function makeHost() {
-  const added: FakeView[] = [];
-  const removed: FakeView[] = [];
-  const window = {
+function makeFakeWindow(added: FakeView[], removed: FakeView[]) {
+  return {
     contentView: {
       addChildView: (view: FakeView) => added.push(view),
       removeChildView: (view: FakeView) => removed.push(view),
     },
   };
+}
+
+function makeHost(options: { getWindow?: () => unknown } = {}) {
+  const added: FakeView[] = [];
+  const removed: FakeView[] = [];
+  const window = makeFakeWindow(added, removed);
   const db = makeDb();
   const onStateChange = vi.fn();
   const onFindResult = vi.fn();
+  const getWindow = options.getWindow ?? (() => window);
   const host = createBrowserHost({
-    window: window as never,
+    getWindow: getWindow as never,
     db,
     downloadsDir: '/tmp/Downloads',
     onStateChange,
     confirmDownload: async () => false,
     onFindResult,
   });
-  return { host, added, removed, db, onStateChange, onFindResult };
+  return { host, added, removed, db, onStateChange, onFindResult, window };
 }
 
 beforeEach(() => {
@@ -420,5 +425,65 @@ describe('readPage', () => {
     const { host } = makeHost();
     const result = await host.readPage('does-not-exist');
     expect(result.status).toBe('not-loaded');
+  });
+});
+
+describe('window lifecycle', () => {
+  // On macOS, closing the main window (red button) does not quit the app,
+  // and re-registration never happens -- app.on('activate') recreates the
+  // window but handlersRegistered is already true. The host must survive
+  // getWindow() returning null again after construction, not just at
+  // construction time, or every later Electron call against it throws.
+  it('does not throw when the window becomes null again after construction', () => {
+    const added: FakeView[] = [];
+    const removed: FakeView[] = [];
+    let windowRef: ReturnType<typeof makeFakeWindow> | null = makeFakeWindow(added, removed);
+    const { host } = makeHost({ getWindow: () => windowRef });
+
+    windowRef = null;
+
+    expect(() => host.openTab('https://uncw.edu/')).not.toThrow();
+    // The new tab's view could not be attached to any window, so nothing
+    // new was added -- but the call must degrade, not crash.
+    expect(added).toHaveLength(1);
+
+    const openedId = host.getState().tabs[1]?.id ?? host.getState().tabs[0].id;
+    expect(() => host.closeTab(openedId)).not.toThrow();
+  });
+
+  it('resumes attaching views normally once the window comes back', () => {
+    const added: FakeView[] = [];
+    const removed: FakeView[] = [];
+    let windowRef: ReturnType<typeof makeFakeWindow> | null = null;
+    const { host } = makeHost({ getWindow: () => windowRef });
+
+    // Constructed with no window: the initial blank tab's view exists but
+    // could not be attached.
+    expect(added).toHaveLength(0);
+
+    windowRef = makeFakeWindow(added, removed);
+    host.openTab('https://uncw.edu/');
+    expect(added).toHaveLength(1);
+  });
+});
+
+describe('destroyView resilience', () => {
+  it('still closes webContents even when removeChildView throws', () => {
+    const added: FakeView[] = [];
+    const window = {
+      contentView: {
+        addChildView: (view: FakeView) => added.push(view),
+        removeChildView: () => {
+          throw new Error('window already destroyed');
+        },
+      },
+    };
+    const { host } = makeHost({ getWindow: () => window });
+
+    const opened = host.openTab('https://uncw.edu/');
+    const view = added[added.length - 1];
+
+    expect(() => host.closeTab(opened)).not.toThrow();
+    expect(view.webContents.closed).toBe(true);
   });
 });

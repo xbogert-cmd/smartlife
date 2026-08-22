@@ -8,7 +8,7 @@ describe('resolveExecutionMode', () => {
     ['READ', 'assist', 'auto'],
     ['READ', 'auto', 'auto'],
     ['SAFE_WRITE', 'ask', 'pause'],
-    ['SAFE_WRITE', 'assist', 'auto'],
+    ['SAFE_WRITE', 'assist', 'pause'],
     ['SAFE_WRITE', 'auto', 'auto'],
     ['CONSEQUENTIAL', 'ask', 'pause'],
     ['CONSEQUENTIAL', 'assist', 'pause'],

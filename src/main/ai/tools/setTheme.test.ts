@@ -13,11 +13,22 @@ describe('set_theme tool', () => {
     const db = makeDb();
     const result = await setThemeTool.run(
       { theme: 'dark' },
-      { db, conversationId: 'c1', mode: 'assist', requestConfirmation: vi.fn() }
+      { db, conversationId: 'c1', mode: 'auto', requestConfirmation: vi.fn() }
     );
     expect(result).toBe('Theme set to "dark".');
     const row = db.prepare('select value from settings where key = ?').get('theme') as { value: string };
     expect(row.value).toBe('dark');
+  });
+
+  it('pauses for confirmation in assist mode too, since SAFE_WRITE now requires it there', async () => {
+    const db = makeDb();
+    const requestConfirmation = vi.fn().mockResolvedValue(true);
+    const result = await setThemeTool.run(
+      { theme: 'dark' },
+      { db, conversationId: 'c1', mode: 'assist', requestConfirmation }
+    );
+    expect(requestConfirmation).toHaveBeenCalledWith('set_theme', 'Change theme to "dark"');
+    expect(result).toBe('Theme set to "dark".');
   });
 
   it('pauses for confirmation in ask mode and applies the change on approval', async () => {

@@ -49,7 +49,7 @@ export function registerBrowserIpcHandlers(
   }
 
   const host = createBrowserHost({
-    window,
+    getWindow,
     db,
     downloadsDir: app.getPath('downloads'),
     onStateChange: (state) => getWindow()?.webContents.send('browser:state-changed', state),

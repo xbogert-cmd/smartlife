@@ -38,7 +38,7 @@ export interface FindResult {
 }
 
 export interface BrowserHostOptions {
-  window: BaseWindow;
+  getWindow: () => BaseWindow | null;
   db: Database.Database;
   downloadsDir: string;
   onStateChange: (state: TabState) => void;
@@ -77,7 +77,7 @@ export interface BrowserHost {
  * without Electron.
  */
 export function createBrowserHost(options: BrowserHostOptions): BrowserHost {
-  const { window, db, downloadsDir, onStateChange, confirmDownload, onFindResult } = options;
+  const { getWindow, db, downloadsDir, onStateChange, confirmDownload, onFindResult } = options;
 
   const views = new Map<string, WebContentsView>();
   const suspension = createSuspendCounter();
@@ -231,7 +231,16 @@ export function createBrowserHost(options: BrowserHostOptions): BrowserHost {
   function createViewFor(id: string, url: string): WebContentsView {
     const view = new WebContentsView({ webPreferences: { ...EMBEDDED_WEB_PREFERENCES } });
     views.set(id, view);
-    window.contentView.addChildView(view);
+    // The main window can become null again after registration (macOS does
+    // not quit on window-all-closed, and the app never re-registers on
+    // activate). Degrade rather than crash: the tab still exists in state,
+    // it just has nowhere to attach its view until a window exists again.
+    const window = getWindow();
+    if (window === null) {
+      note('browser:no-window', `cannot attach view for tab ${id} -- no window is currently open`);
+    } else {
+      window.contentView.addChildView(view);
+    }
     wire(id, view.webContents);
     loadUrlSafely(view.webContents, id, url);
     return view;
@@ -241,7 +250,20 @@ export function createBrowserHost(options: BrowserHostOptions): BrowserHost {
     const view = views.get(id);
     if (!view) return;
     views.delete(id);
-    window.contentView.removeChildView(view);
+    // removeChildView and webContents.close() are independent teardown
+    // steps. A failure in one (e.g. the window is already gone) must not
+    // skip the other, or -- for the before-quit handler specifically --
+    // skip later teardown steps for other tabs or the caller's own cleanup.
+    try {
+      const window = getWindow();
+      if (window === null) {
+        note('browser:no-window', `cannot detach view for tab ${id} -- no window is currently open`);
+      } else {
+        window.contentView.removeChildView(view);
+      }
+    } catch (error) {
+      logError('browser:removeChildView', error);
+    }
     try {
       view.webContents.close();
     } catch (error) {

@@ -123,7 +123,7 @@ describe('calendar_list_events', () => {
 });
 
 describe('calendar_create_event', () => {
-  it('does not pause in assist mode for a solo event', async () => {
+  it('pauses in assist mode for a solo event too, since assist now confirms SAFE_WRITE', async () => {
     const requestConfirmation = vi.fn().mockResolvedValue(true);
 
     await calendarCreateEventTool.run(
@@ -136,7 +136,7 @@ describe('calendar_create_event', () => {
       ctx(makeDb(), 'assist', requestConfirmation)
     );
 
-    expect(requestConfirmation).not.toHaveBeenCalled();
+    expect(requestConfirmation).toHaveBeenCalledTimes(1);
     expect(createCalendarEvent).toHaveBeenCalledTimes(1);
   });
 
@@ -217,7 +217,7 @@ describe('calendar_update_event', () => {
     expect(requestConfirmation.mock.calls[0][1]).toContain('3 guests');
   });
 
-  it('does not pause in assist mode for a solo event', async () => {
+  it('pauses in assist mode for a solo event too, since assist now confirms SAFE_WRITE', async () => {
     const db = makeDb();
     seedEvent(db);
     const requestConfirmation = vi.fn().mockResolvedValue(true);
@@ -227,7 +227,7 @@ describe('calendar_update_event', () => {
       ctx(db, 'assist', requestConfirmation)
     );
 
-    expect(requestConfirmation).not.toHaveBeenCalled();
+    expect(requestConfirmation).toHaveBeenCalledTimes(1);
   });
 
   it('fails cleanly when the event is unknown', async () => {

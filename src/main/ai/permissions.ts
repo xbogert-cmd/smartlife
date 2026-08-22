@@ -3,7 +3,7 @@ export type AiMode = 'ask' | 'assist' | 'auto';
 
 const PAUSE_TIERS: Record<AiMode, ToolTier[]> = {
   ask: ['SAFE_WRITE', 'CONSEQUENTIAL'],
-  assist: ['CONSEQUENTIAL'],
+  assist: ['SAFE_WRITE', 'CONSEQUENTIAL'],
   auto: [],
 };
 
