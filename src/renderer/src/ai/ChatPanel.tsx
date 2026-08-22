@@ -12,7 +12,7 @@ export interface ChatPanelProps {
   onInputChange: (value: string) => void;
   onSubmit: (event: FormEvent) => void;
   onRespondToConfirm: (approved: boolean) => void;
-  /** Called before navigating to Settings from the empty state — lets AIOverlay close itself first. */
+  /** Called before navigating to Settings from the empty state — lets AIDock close itself first. */
   onNavigateAway?: () => void;
 }
 

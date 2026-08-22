@@ -11,7 +11,7 @@ import { Course } from './routes/Course';
 import { Calendar } from './routes/Calendar';
 import { Browser } from './routes/Browser';
 import { ComingSoon } from './routes/ComingSoon';
-import { AIOverlay } from './ai/AIOverlay';
+import { AIDock } from './ai/AIDock';
 import { CommandPalette } from './command-palette/CommandPalette';
 import { DownloadPrompt } from './browser/DownloadPrompt';
 import { useBrowserSuspend } from './browser/useBrowserSuspend';
@@ -23,24 +23,23 @@ function NavigationBridge() {
 }
 
 function Shell() {
-  const [overlayOpen, setOverlayOpen] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
 
-  // The Cmd+J overlay and Cmd+K palette are React and would otherwise be
-  // painted underneath the native browser view.
-  useBrowserSuspend(overlayOpen);
+  // The Cmd+K palette is a true modal and would be painted underneath the
+  // native browser view. The assistant is a dock -- it shrinks the viewport
+  // rather than covering it -- so it must NOT suspend.
   useBrowserSuspend(paletteOpen);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent): void {
       if (event.metaKey && event.key.toLowerCase() === 'j') {
         event.preventDefault();
-        setOverlayOpen((open) => !open);
+        setAiOpen((open) => !open);
       } else if (event.metaKey && event.key.toLowerCase() === 'k') {
         event.preventDefault();
         setPaletteOpen((open) => !open);
       } else if (event.key === 'Escape') {
-        setOverlayOpen(false);
         setPaletteOpen(false);
       }
     }
@@ -50,8 +49,8 @@ function Shell() {
 
   return (
     <div className="flex h-screen">
-      <Sidebar />
-      <main className="flex-1 overflow-auto">
+      <Sidebar aiOpen={aiOpen} onToggleAi={() => setAiOpen((open) => !open)} />
+      <main className="flex min-w-0 flex-1 flex-col overflow-auto">
         <NavigationBridge />
         <Routes>
           <Route path="/" element={<Home />} />
@@ -75,13 +74,13 @@ function Shell() {
           <Route path="*" element={<Home />} />
         </Routes>
       </main>
-      {overlayOpen && <AIOverlay onClose={() => setOverlayOpen(false)} />}
+      {aiOpen && <AIDock onClose={() => setAiOpen(false)} />}
       {paletteOpen && (
         <CommandPalette
           onClose={() => setPaletteOpen(false)}
           onOpenAI={() => {
             setPaletteOpen(false);
-            setOverlayOpen(true);
+            setAiOpen(true);
           }}
         />
       )}

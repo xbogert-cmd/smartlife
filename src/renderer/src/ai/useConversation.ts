@@ -22,7 +22,7 @@ function extractText(content: unknown): string {
     .join('');
 }
 
-export function useConversation() {
+export function useConversation(view: unknown = null) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [statusLabel, setStatusLabel] = useState<string | null>(null);
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
@@ -82,14 +82,14 @@ export function useConversation() {
     setMessages((prev) => [...prev, { id, role: 'user', text }]);
     setSending(true);
     streamingIdRef.current = null;
-    window.smartlife.ai.sendMessage(text).catch(() => {
+    window.smartlife.ai.sendMessage(text, view).catch(() => {
       setSending(false);
       setMessages((prev) => [
         ...prev,
         { id: `assistant-${Date.now()}-${Math.random()}`, role: 'assistant', text: 'Something went wrong — try again.' },
       ]);
     });
-  }, []);
+  }, [view]);
 
   const respondToConfirm = useCallback(
     async (approved: boolean) => {

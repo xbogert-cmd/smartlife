@@ -2,7 +2,12 @@ import { NavLink } from 'react-router-dom';
 import { NAV_SECTIONS } from './sections';
 import { getSectionTheme } from './sectionThemes';
 
-export function Sidebar() {
+interface SidebarProps {
+  aiOpen: boolean;
+  onToggleAi: () => void;
+}
+
+export function Sidebar({ aiOpen, onToggleAi }: SidebarProps) {
   return (
     <nav className="flex w-56 flex-shrink-0 flex-col gap-1 border-r p-3" style={{ borderColor: 'var(--color-border)' }}>
       {NAV_SECTIONS.map((section) => {
@@ -26,6 +31,28 @@ export function Sidebar() {
           </NavLink>
         );
       })}
+
+      {/*
+        The assistant toggle lives here rather than floating over the content
+        area: the embedded browser is a native view composited above the React
+        tree, so a button drawn over its rectangle would be invisible on
+        /browser -- the one route where it is most needed. The sidebar is
+        chrome the native view never covers.
+      */}
+      <button
+        type="button"
+        onClick={onToggleAi}
+        aria-pressed={aiOpen}
+        className="mt-auto rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors hover:opacity-80"
+        style={{
+          border: '1px solid var(--color-border)',
+          color: 'var(--color-text-muted)',
+          backgroundColor: aiOpen ? 'var(--color-surface)' : 'transparent',
+        }}
+      >
+        {aiOpen ? 'Hide assistant' : 'Ask AI'}
+        <span className="ml-2 opacity-60">⌘J</span>
+      </button>
     </nav>
   );
 }

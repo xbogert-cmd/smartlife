@@ -131,15 +131,26 @@ describe('App', () => {
     expect(window.smartlife.theme.set).toHaveBeenCalledWith('dark');
   });
 
-  it('opens the AI overlay with Cmd+J and closes it with Escape', async () => {
+  it('opens the AI dock with Cmd+J as a complementary panel, not a modal', async () => {
     render(<App />);
     await screen.findByText(/good (morning|afternoon|evening)/i);
 
     await userEvent.keyboard('{Meta>}j{/Meta}');
-    expect(await screen.findByRole('dialog', { name: 'Ask AI' })).toBeInTheDocument();
+    expect(await screen.findByRole('complementary', { name: /assistant/i })).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 
+    // Escape is not a dismissal gesture for a dock -- it's not modal.
     await userEvent.keyboard('{Escape}');
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Ask AI' })).not.toBeInTheDocument());
+    expect(screen.getByRole('complementary', { name: /assistant/i })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: /close assistant/i }));
+    await waitFor(() => expect(screen.queryByRole('complementary', { name: /assistant/i })).not.toBeInTheDocument());
+  });
+
+  it('does not suspend the browser view when the assistant opens', async () => {
+    render(<App />);
+    await userEvent.click(await screen.findByRole('button', { name: /ask ai/i }));
+    expect(window.smartlife.browser.suspend).not.toHaveBeenCalled();
   });
 
   it('opens the command palette with Cmd+K and jumps to a section', async () => {
