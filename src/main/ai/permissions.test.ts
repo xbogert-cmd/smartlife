@@ -51,7 +51,8 @@ describe('ALWAYS_CONFIRM', () => {
 
   it('still asks for confirmation in auto mode through gate()', async () => {
     const ask = vi.fn().mockResolvedValue(true);
-    await gate('ALWAYS_CONFIRM', 'auto', 'canvas_submit_assignment', 'Submit it.', ask);
+    const approved = await gate('ALWAYS_CONFIRM', 'auto', 'canvas_submit_assignment', 'Submit it.', ask);
+    expect(approved).toBe(true);
     expect(ask).toHaveBeenCalledWith('canvas_submit_assignment', 'Submit it.');
   });
 
