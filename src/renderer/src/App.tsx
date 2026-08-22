@@ -8,6 +8,7 @@ import { Settings } from './routes/Settings';
 import { AI } from './routes/AI';
 import { School } from './routes/School';
 import { Course } from './routes/Course';
+import { Assignment } from './routes/Assignment';
 import { Calendar } from './routes/Calendar';
 import { Browser } from './routes/Browser';
 import { ComingSoon } from './routes/ComingSoon';
@@ -58,6 +59,7 @@ function Shell() {
           <Route path="/ai" element={<AI />} />
           <Route path="/school" element={<School />} />
           <Route path="/school/course/:courseId" element={<Course />} />
+          <Route path="/assignment/:assignmentId" element={<Assignment />} />
           <Route path="/calendar" element={<Calendar />} />
           <Route path="/browser" element={<Browser />} />
           {NAV_SECTIONS.filter(

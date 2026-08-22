@@ -146,7 +146,13 @@ export function Course(): React.JSX.Element {
           detail.assignments.map((assignment) => (
             <div key={assignment.id} className="flex items-center justify-between rounded-lg px-3 py-2" style={rowStyle}>
               <div className="flex flex-col">
-                <span style={{ color: 'var(--color-text)' }}>{assignment.name}</span>
+                <Link
+                  to={`/assignment/${assignment.id}`}
+                  className="hover:underline"
+                  style={{ color: 'var(--color-text)' }}
+                >
+                  {assignment.name}
+                </Link>
                 <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
                   {assignment.dueAt ? formatDue(assignment.dueAt) : 'no due date'}
                 </span>
