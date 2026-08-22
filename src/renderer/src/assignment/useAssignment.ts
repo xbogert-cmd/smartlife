@@ -15,6 +15,9 @@ export function useAssignment(id: number) {
 
   useEffect(() => {
     let cancelled = false;
+    // Clear any outcome left over from a previously viewed assignment immediately,
+    // so a navigation to a new id never shows a stale success/failure banner.
+    setOutcome(null);
     void (async () => {
       const next = (await window.smartlife.canvas.getAssignment(id)) as AssignmentDetail | null;
       // Guard against a slow fetch resolving after the route changed id.

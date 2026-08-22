@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { Link, MemoryRouter, Route, Routes } from 'react-router-dom';
 import { Assignment } from './Assignment';
 
 const getAssignment = vi.fn();
@@ -194,5 +194,52 @@ describe('Assignment route — submission wiring', () => {
     renderAt();
     expect(await screen.findByRole('textbox')).toBeTruthy();
     expect(screen.getByRole('button', { name: /choose file/i })).toBeTruthy();
+  });
+
+  it('clears a stale outcome banner when navigating to a different assignment', async () => {
+    // React Router reuses the Assignment element across a param-only
+    // navigation (no remount), so this renders both assignments under the
+    // same Route and navigates via a real Link click, matching production.
+    getAssignment.mockImplementation((requestedId: number) =>
+      Promise.resolve(
+        requestedId === 10
+          ? detail({ id: 10, path: { kind: 'text' }, draft: 'x' })
+          : detail({ id: 11, name: 'Assignment Eleven', path: { kind: 'file' } })
+      )
+    );
+    (window as unknown as { smartlife: { canvas: { submit: ReturnType<typeof vi.fn> } } })
+      .smartlife.canvas.submit.mockResolvedValue({
+        ok: false,
+        verified: false,
+        submittedAt: null,
+        message: 'Canvas refused the submission.',
+      });
+
+    render(
+      <MemoryRouter initialEntries={['/assignment/10']}>
+        <Routes>
+          <Route
+            path="/assignment/:assignmentId"
+            element={
+              <>
+                <Assignment />
+                <Link to="/assignment/11">Go to eleven</Link>
+              </>
+            }
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await userEvent.click(await screen.findByRole('button', { name: /^submit$/i }));
+    await userEvent.click(screen.getByRole('button', { name: /submit to canvas/i }));
+    expect(await screen.findByRole('alert')).toBeTruthy();
+    expect(screen.getByText(/Canvas refused/)).toBeTruthy();
+
+    await userEvent.click(screen.getByRole('link', { name: /go to eleven/i }));
+
+    await screen.findByRole('heading', { name: 'Assignment Eleven' });
+    expect(screen.queryByText(/Canvas refused/)).toBeNull();
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 });
