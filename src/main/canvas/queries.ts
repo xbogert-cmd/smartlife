@@ -1,6 +1,8 @@
 import type Database from 'better-sqlite3';
 import { getCanvasBaseUrl, getTokenAgeDays, hasCanvasToken, TOKEN_WARN_AFTER_DAYS } from './token';
 import { courseContentKey, getSyncState, SYNC_KEY_LAST_CORE, SYNC_KEY_TOKEN_INVALID } from './sync';
+import { classifySubmission, type SubmissionPath } from './submission';
+import { getDraft } from './drafts';
 
 export interface UpcomingAssignment {
   id: number;
@@ -360,4 +362,82 @@ export function getPageBody(
     .prepare('select title, body from canvas_pages where course_id = ? and url = ?')
     .get(courseId, pageUrl) as { title: string | null; body: string | null } | undefined;
   return row ?? null;
+}
+
+export interface AssignmentDetail {
+  id: number;
+  courseId: number;
+  courseName: string;
+  name: string;
+  description: string | null;
+  dueAt: string | null;
+  pointsPossible: number | null;
+  htmlUrl: string | null;
+  hasSubmitted: boolean;
+  submittedAt: string | null;
+  score: number | null;
+  grade: string | null;
+  workflowState: string | null;
+  /** Resolved once here so every consumer reads the same classification. */
+  path: SubmissionPath;
+  draft: string | null;
+}
+
+export function getAssignmentDetail(
+  db: Database.Database,
+  assignmentId: number
+): AssignmentDetail | null {
+  const row = db
+    .prepare(
+      `select a.id, a.course_id, c.name as course_name, a.name, a.description, a.due_at,
+              a.points_possible, a.html_url, a.submission_types, a.has_submitted,
+              a.submitted_at, a.score, a.grade, a.workflow_state
+       from canvas_assignments a
+       join canvas_courses c on c.id = a.course_id
+       where a.id = ?`
+    )
+    .get(assignmentId) as
+    | {
+        id: number;
+        course_id: number;
+        course_name: string;
+        name: string;
+        description: string | null;
+        due_at: string | null;
+        points_possible: number | null;
+        html_url: string | null;
+        submission_types: string | null;
+        has_submitted: number;
+        submitted_at: string | null;
+        score: number | null;
+        grade: string | null;
+        workflow_state: string | null;
+      }
+    | undefined;
+
+  if (row === undefined) return null;
+
+  // Canvas only links topic -> assignment, so this lookup is the reverse
+  // direction and returns undefined until the topic has synced.
+  const topic = db
+    .prepare('select id from canvas_discussion_topics where assignment_id = ? limit 1')
+    .get(assignmentId) as { id: number } | undefined;
+
+  return {
+    id: row.id,
+    courseId: row.course_id,
+    courseName: row.course_name,
+    name: row.name,
+    description: row.description,
+    dueAt: row.due_at,
+    pointsPossible: row.points_possible,
+    htmlUrl: row.html_url,
+    hasSubmitted: row.has_submitted === 1,
+    submittedAt: row.submitted_at,
+    score: row.score,
+    grade: row.grade,
+    workflowState: row.workflow_state,
+    path: classifySubmission(row.submission_types, topic ? topic.id : null),
+    draft: getDraft(db, assignmentId),
+  };
 }
