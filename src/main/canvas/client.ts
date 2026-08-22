@@ -1,4 +1,10 @@
-import { CanvasAuthError, CanvasNetworkError, CanvasRateLimitError } from './errors';
+import {
+  CanvasAuthError,
+  CanvasForbiddenError,
+  CanvasNetworkError,
+  CanvasRateLimitError,
+  CanvasRequireInitialPostError,
+} from './errors';
 
 export interface CanvasCredentials {
   baseUrl: string;
@@ -58,7 +64,9 @@ async function requestPage(url: string, token: string): Promise<Response> {
   if (response.status === 403) {
     const body = await response.text().catch(() => '');
     if (/rate limit/i.test(body)) throw new CanvasRateLimitError();
-    throw new CanvasNetworkError(`Canvas returned 403: ${body.slice(0, 200)}`);
+    // Canvas returns the bare string for a thread read before an initial post.
+    if (body.trim() === 'require_initial_post') throw new CanvasRequireInitialPostError(body.trim());
+    throw new CanvasForbiddenError(body);
   }
   throw new CanvasNetworkError(`Canvas returned ${response.status}.`);
 }
@@ -92,5 +100,48 @@ export async function canvasFetchOne<T>(
   params: QueryParams = {}
 ): Promise<T> {
   const response = await requestPage(buildUrl(creds.baseUrl, path, params), creds.token);
+  return (await response.json()) as T;
+}
+
+/**
+ * Canvas accepts JSON bodies on its write endpoints, which keeps nested
+ * params (`submission[submission_type]`) expressible as plain objects instead
+ * of hand-rolled form encoding. Shares requestPage's error mapping, so a POST
+ * and a GET fail identically.
+ */
+export async function canvasPost<T>(
+  creds: CanvasCredentials,
+  path: string,
+  body: unknown
+): Promise<T> {
+  const url = new URL(path, creds.baseUrl).toString();
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${creds.token}`,
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+  } catch (error) {
+    throw new CanvasNetworkError(error instanceof Error ? error.message : 'Could not reach Canvas.');
+  }
+
+  if (!response.ok) {
+    if (response.status === 401) throw new CanvasAuthError();
+    if (response.status === 429) throw new CanvasRateLimitError();
+    if (response.status === 403) {
+      const text = await response.text().catch(() => '');
+      if (/rate limit/i.test(text)) throw new CanvasRateLimitError();
+      if (text.trim() === 'require_initial_post') throw new CanvasRequireInitialPostError(text.trim());
+      throw new CanvasForbiddenError(text);
+    }
+    const text = await response.text().catch(() => '');
+    throw new CanvasNetworkError(`Canvas returned ${response.status}: ${text.slice(0, 200)}`);
+  }
+
   return (await response.json()) as T;
 }

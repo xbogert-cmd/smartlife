@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { canvasFetchAll, canvasFetchOne, parseNextLink } from './client';
-import { CanvasAuthError, CanvasNetworkError, CanvasRateLimitError } from './errors';
+import { canvasFetchAll, canvasFetchOne, canvasPost, parseNextLink } from './client';
+import {
+  CanvasAuthError,
+  CanvasNetworkError,
+  CanvasRateLimitError,
+  CanvasRequireInitialPostError,
+} from './errors';
 
 const CREDS = { baseUrl: 'https://uncw.instructure.com', token: 'test-token' };
 
@@ -154,5 +159,65 @@ describe('canvasFetchOne', () => {
   it('maps 401 to CanvasAuthError', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({}, { status: 401 })));
     await expect(canvasFetchOne(CREDS, '/api/v1/users/self')).rejects.toBeInstanceOf(CanvasAuthError);
+  });
+});
+
+describe('403 discrimination', () => {
+  it('maps the literal require_initial_post body to its own error', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(new Response('require_initial_post', { status: 403 }))
+    );
+    await expect(canvasFetchOne(CREDS, '/api/v1/x')).rejects.toBeInstanceOf(
+      CanvasRequireInitialPostError
+    );
+  });
+
+  it('still maps a plain 403 to something a CanvasNetworkError catch will see', async () => {
+    // sync.ts relies on this for instructor-disabled Files tabs.
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('nope', { status: 403 })));
+    await expect(canvasFetchOne(CREDS, '/api/v1/x')).rejects.toBeInstanceOf(CanvasNetworkError);
+  });
+
+  it('exposes the 403 body so callers can explain the refusal', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('nope', { status: 403 })));
+    await expect(canvasFetchOne(CREDS, '/api/v1/x')).rejects.toMatchObject({ body: 'nope' });
+  });
+
+  it('keeps rate-limit precedence over the forbidden mapping', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(new Response('403 Forbidden (Rate Limit Exceeded)', { status: 403 }))
+    );
+    await expect(canvasFetchOne(CREDS, '/api/v1/x')).rejects.toBeInstanceOf(CanvasRateLimitError);
+  });
+});
+
+describe('canvasPost', () => {
+  it('POSTs JSON with the bearer token', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ id: 7 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await canvasPost<{ id: number }>(CREDS, '/api/v1/thing', { a: 1 });
+
+    expect(result).toEqual({ id: 7 });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://uncw.instructure.com/api/v1/thing');
+    expect(init.method).toBe('POST');
+    expect(init.headers.Authorization).toBe('Bearer test-token');
+    expect(init.headers['Content-Type']).toBe('application/json');
+    expect(JSON.parse(init.body)).toEqual({ a: 1 });
+  });
+
+  it('maps a 401 to CanvasAuthError like GETs do', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('', { status: 401 })));
+    await expect(canvasPost(CREDS, '/api/v1/thing', {})).rejects.toBeInstanceOf(CanvasAuthError);
+  });
+
+  it('does not append per_page to a POST', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({}));
+    vi.stubGlobal('fetch', fetchMock);
+    await canvasPost(CREDS, '/api/v1/thing', {});
+    expect(fetchMock.mock.calls[0][0]).not.toContain('per_page');
   });
 });
