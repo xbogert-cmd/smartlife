@@ -56,6 +56,11 @@ beforeEach(() => {
       openExternal: vi.fn(),
       searchMaterials: vi.fn().mockResolvedValue([]),
       onSyncChanged: vi.fn().mockReturnValue(() => {}),
+      getAssignment: vi.fn().mockResolvedValue(null),
+      saveDraft: vi.fn(),
+      clearDraft: vi.fn(),
+      pickFile: vi.fn().mockResolvedValue(null),
+      submit: vi.fn(),
     },
     calendar: {
       getStatus: vi.fn().mockResolvedValue({

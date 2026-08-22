@@ -162,6 +162,22 @@ const smartlife = {
       ipcRenderer.on('canvas:sync-changed', listener);
       return () => ipcRenderer.removeListener('canvas:sync-changed', listener);
     },
+    getAssignment: (assignmentId: number): Promise<unknown> =>
+      ipcRenderer.invoke('canvas:get-assignment', assignmentId),
+    saveDraft: (assignmentId: number, body: string): Promise<void> =>
+      ipcRenderer.invoke('canvas:save-draft', assignmentId, body),
+    clearDraft: (assignmentId: number): Promise<void> =>
+      ipcRenderer.invoke('canvas:clear-draft', assignmentId),
+    pickFile: (): Promise<{ path: string; name: string; size: number } | null> =>
+      ipcRenderer.invoke('canvas:pick-file'),
+    submit: (
+      assignmentId: number,
+      input:
+        | { kind: 'text'; body: string }
+        | { kind: 'file'; filePath: string }
+        | { kind: 'discussion'; message: string }
+    ): Promise<{ ok: boolean; verified: boolean; submittedAt: string | null; message: string }> =>
+      ipcRenderer.invoke('canvas:submit', assignmentId, input),
   },
   calendar: {
     getStatus: (): Promise<CalendarStatus> => ipcRenderer.invoke('calendar:get-status'),

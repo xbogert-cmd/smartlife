@@ -1,5 +1,7 @@
-import { ipcMain, shell, type BrowserWindow } from 'electron';
+import { ipcMain, shell, dialog, type BrowserWindow } from 'electron';
 import type Database from 'better-sqlite3';
+import { stat } from 'node:fs/promises';
+import { basename } from 'node:path';
 import {
   clearCanvasToken,
   getCanvasCredentials,
@@ -10,6 +12,7 @@ import { getSelf } from './api';
 import { fetchPageBody, syncCourseContent } from './sync';
 import { openCanvasFile } from './files';
 import {
+  getAssignmentDetail,
   getCourseDetail,
   getCourseGrades,
   getPageBody,
@@ -18,6 +21,9 @@ import {
   getUpcomingAssignments,
   searchMaterials,
 } from './queries';
+import { clearDraft, saveDraft } from './drafts';
+import { submitAssignment, type SubmitInput } from './submit';
+import { setActiveCanvasScheduler } from './schedulerRegistry';
 import type { CanvasScheduler } from './scheduler';
 import { isSafeExternalUrl } from '../url';
 
@@ -30,6 +36,9 @@ export function registerCanvasIpcHandlers(
   getWindow: () => BrowserWindow | null,
   scheduler: CanvasScheduler
 ): void {
+  // Published so the AI submit tool can reach the same exclusivity guard.
+  setActiveCanvasScheduler(scheduler);
+
   ipcMain.handle('canvas:get-status', () => getSyncStatus(db));
 
   ipcMain.handle('canvas:set-base-url', (_event, url: string) => {
@@ -110,5 +119,59 @@ export function registerCanvasIpcHandlers(
     }
     await shell.openExternal(new URL(url).toString());
     return { ok: true };
+  });
+
+  ipcMain.handle('canvas:get-assignment', async (_event, assignmentId: number) =>
+    getAssignmentDetail(db, assignmentId)
+  );
+
+  ipcMain.handle('canvas:save-draft', (_event, assignmentId: number, body: string) => {
+    saveDraft(db, assignmentId, body);
+  });
+
+  ipcMain.handle('canvas:clear-draft', (_event, assignmentId: number) => {
+    clearDraft(db, assignmentId);
+  });
+
+  /**
+   * The native picker runs main-side and hands back only a path plus display
+   * metadata. The renderer never touches file bytes and no fs API crosses the
+   * preload bridge.
+   */
+  ipcMain.handle('canvas:pick-file', async () => {
+    const window = getWindow();
+    const result = window
+      ? await dialog.showOpenDialog(window, { properties: ['openFile'] })
+      : await dialog.showOpenDialog({ properties: ['openFile'] });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    const filePath = result.filePaths[0];
+    try {
+      const info = await stat(filePath);
+      return { path: filePath, name: basename(filePath), size: info.size };
+    } catch {
+      return null;
+    }
+  });
+
+  ipcMain.handle('canvas:submit', async (_event, assignmentId: number, input: SubmitInput) => {
+    const creds = getCanvasCredentials(db);
+    if (creds === null) {
+      return { ok: false, verified: false, submittedAt: null, message: 'Canvas is not connected.' };
+    }
+    // Same guard canvas:sync-course uses: a submission must never overlap a
+    // background sync.
+    const outcome = await scheduler.runExclusive(() =>
+      submitAssignment(db, creds, assignmentId, input)
+    );
+    if (outcome === null) {
+      return {
+        ok: false,
+        verified: false,
+        submittedAt: null,
+        message: 'A Canvas sync is already in progress. Try again shortly.',
+      };
+    }
+    getWindow()?.webContents.send('canvas:sync-changed');
+    return outcome;
   });
 }
