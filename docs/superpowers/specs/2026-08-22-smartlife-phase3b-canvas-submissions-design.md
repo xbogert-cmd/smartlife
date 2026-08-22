@@ -107,9 +107,15 @@ from Phase 3.
 
 Canvas documents that submission requires an active student enrollment:
 *"You must be actively enrolled as a student in the course/section to do this.
-Concluded and pending enrollments are not permitted."* That is consistent with
-the user's five concluded courses being un-submittable, which is correct
-behavior rather than a limitation.
+Concluded and pending enrollments are not permitted."* Once a term's
+enrollments conclude, its assignments stop accepting submissions, which is
+correct behavior rather than a limitation.
+
+(The four courses in the local database named "not active (…)" are **Spring 2026
+courses the user nicknamed in Canvas** — Canvas returns student nicknames in the
+course `name` field — not a Canvas enrollment state. They still returned from
+`listCourses`, which filters on `enrollment_state: 'active'`. The counts in the
+table above are scoped to Fall 2026 and are unaffected.)
 
 What cannot be verified from documentation is whether UNCW's Canvas instance
 permits API-initiated submissions at all. Some institutions restrict API writes.
