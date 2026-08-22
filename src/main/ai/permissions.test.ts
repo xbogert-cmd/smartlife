@@ -41,3 +41,27 @@ describe('gate', () => {
     expect(approved).toBe(false);
   });
 });
+
+describe('ALWAYS_CONFIRM', () => {
+  it('pauses in every mode, auto included', () => {
+    expect(resolveExecutionMode('ALWAYS_CONFIRM', 'ask')).toBe('pause');
+    expect(resolveExecutionMode('ALWAYS_CONFIRM', 'assist')).toBe('pause');
+    expect(resolveExecutionMode('ALWAYS_CONFIRM', 'auto')).toBe('pause');
+  });
+
+  it('still asks for confirmation in auto mode through gate()', async () => {
+    const ask = vi.fn().mockResolvedValue(true);
+    await gate('ALWAYS_CONFIRM', 'auto', 'canvas_submit_assignment', 'Submit it.', ask);
+    expect(ask).toHaveBeenCalledWith('canvas_submit_assignment', 'Submit it.');
+  });
+
+  it('returns false when the user declines in auto mode', async () => {
+    const ask = vi.fn().mockResolvedValue(false);
+    const approved = await gate('ALWAYS_CONFIRM', 'auto', 'canvas_submit_assignment', 'Submit it.', ask);
+    expect(approved).toBe(false);
+  });
+
+  it('leaves READ unpaused in auto so the tier change is not a blanket one', () => {
+    expect(resolveExecutionMode('READ', 'auto')).toBe('auto');
+  });
+});
