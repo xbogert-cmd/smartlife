@@ -1,4 +1,4 @@
-import type { FormEvent } from 'react';
+import { useLayoutEffect, useRef, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { ChatMessage, PendingConfirm } from './useConversation';
 
@@ -29,6 +29,16 @@ export function ChatPanel({
   onNavigateAway,
 }: ChatPanelProps) {
   const navigate = useNavigate();
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  // Runs on every mount (the dock unmounts on close, so reopening is always a
+  // fresh mount) and whenever the transcript grows, so it lands on the latest
+  // message instead of the top. useLayoutEffect fires before paint, so there
+  // is no visible top-of-chat flash before the jump.
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [messages, statusLabel, pendingConfirm]);
 
   if (apiKeyConfigured !== true) {
     return (
@@ -54,7 +64,7 @@ export function ChatPanel({
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex flex-1 flex-col gap-3 overflow-auto p-6">
+      <div ref={scrollRef} className="flex flex-1 flex-col gap-3 overflow-auto p-6">
         {messages.map((message) => (
           <div
             key={message.id}
