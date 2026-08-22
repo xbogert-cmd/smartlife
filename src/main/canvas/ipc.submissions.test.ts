@@ -112,10 +112,21 @@ describe('draft channels', () => {
 
 describe('canvas:submit', () => {
   it('runs the submission inside the scheduler exclusivity guard', async () => {
-    const { runExclusive } = setup();
-    await invoke('canvas:submit', 10, { kind: 'text', body: 'x' });
+    const { runExclusive, db } = setup();
+    const result = await invoke('canvas:submit', 10, { kind: 'text', body: 'x' });
     expect(runExclusive).toHaveBeenCalled();
-    expect(submitAssignment).toHaveBeenCalled();
+    expect(result).toEqual({
+      ok: true,
+      verified: true,
+      submittedAt: '2026-08-22T12:00:00Z',
+      message: 'Submitted and confirmed by Canvas.',
+    });
+    expect(submitAssignment).toHaveBeenCalledWith(
+      db,
+      { baseUrl: 'https://uncw.instructure.com', token: 'tok' },
+      10,
+      { kind: 'text', body: 'x' }
+    );
   });
 
   it('refuses when a sync is already in flight rather than submitting anyway', async () => {
