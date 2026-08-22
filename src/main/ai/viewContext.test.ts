@@ -96,6 +96,18 @@ describe('buildSystemPrompt', () => {
     expect(prompt).not.toContain('--- BEGIN UNTRUSTED PAGE CONTENT');
   });
 
+  it('nudges toward a natural writing voice when the model can submit text', () => {
+    const db = setup('Reflection Post', '["online_text_entry"]');
+    const prompt = buildSystemPrompt(db, { route: 'assignment', assignmentId: 10 }, NOW);
+    expect(prompt).toContain('write like a student typing a real post');
+  });
+
+  it('does not nudge writing style for a file-only assignment', () => {
+    const db = setup('File Upload Homework', '["online_upload"]');
+    const prompt = buildSystemPrompt(db, { route: 'assignment', assignmentId: 10 }, NOW);
+    expect(prompt).not.toContain('write like a student typing a real post');
+  });
+
   it('mentions the calendar and the selected event id on the calendar route', () => {
     const prompt = buildSystemPrompt(setup(), { route: 'calendar', selectedEventId: 'evt-1' }, NOW);
     expect(prompt.toLowerCase()).toContain('calendar');

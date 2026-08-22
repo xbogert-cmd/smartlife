@@ -18,6 +18,15 @@ export type ViewContext =
 const BASE_PROMPT =
   "You are SmartLife's built-in assistant, running inside a local macOS app that holds the user's Canvas coursework, Google Calendar, and an embedded browser. Be concise and concrete. When you use a tool, say what you found rather than narrating the call.";
 
+/**
+ * Only injected where the model can actually compose text that gets submitted
+ * (text entries, discussions) -- not general chat. The user reviews and
+ * confirms every submission before it sends, but AI-detector false-positives
+ * are a real cost to them, so the draft itself should read like a person.
+ */
+const NATURAL_WRITING_STYLE =
+  'When drafting text to actually submit, write like a student typing a real post, not a report: vary sentence length noticeably, use contractions, and don\'t open by restating the prompt or close with a tidy summary sentence. Avoid stock transitions ("moreover", "furthermore", "additionally", "in conclusion", "overall") and AI-tell words ("delve", "tapestry", "underscore", "robust", "multifaceted", "foster", "navigate", "landscape"). Be specific and opinionated instead of balanced and hedged.';
+
 /** Canvas content is low-risk but not zero-risk, and the neutralizer is free. */
 function safe(value: string | null | undefined, max = 200): string {
   if (typeof value !== 'string' || value.length === 0) return '';
@@ -47,16 +56,19 @@ function assignmentLine(db: Database.Database, assignmentId: number): string | n
   switch (detail.path.kind) {
     case 'text':
       parts.push('It takes a text entry, which you can submit with canvas_submit_assignment.');
+      parts.push(NATURAL_WRITING_STYLE);
       break;
     case 'text-or-file':
       parts.push(
         'It takes either a text entry or a file. You can submit text with canvas_submit_assignment; the user must attach files themselves.'
       );
+      parts.push(NATURAL_WRITING_STYLE);
       break;
     case 'discussion':
       parts.push(
         'It is a graded discussion. canvas_submit_assignment posts to it, and the post is visible to the whole class.'
       );
+      parts.push(NATURAL_WRITING_STYLE);
       break;
     case 'file':
       parts.push('It takes a file upload, which only the user can do — you cannot attach files.');
