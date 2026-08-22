@@ -123,7 +123,8 @@ const smartlife = {
     setApiKey: (apiKey: string): Promise<void> => ipcRenderer.invoke('ai:set-api-key', apiKey),
     getMode: (): Promise<'ask' | 'assist' | 'auto'> => ipcRenderer.invoke('ai:get-mode'),
     setMode: (mode: 'ask' | 'assist' | 'auto'): Promise<void> => ipcRenderer.invoke('ai:set-mode', mode),
-    sendMessage: (text: string): Promise<void> => ipcRenderer.invoke('ai:send-message', text),
+    sendMessage: (text: string, view: unknown = null): Promise<void> =>
+      ipcRenderer.invoke('ai:send-message', text, view),
     onStreamEvent: (cb: (event: StreamEvent) => void): (() => void) => {
       const listener = (_event: Electron.IpcRendererEvent, streamEvent: StreamEvent) => cb(streamEvent);
       ipcRenderer.on('ai:stream-event', listener);

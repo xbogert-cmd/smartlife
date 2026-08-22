@@ -15,6 +15,7 @@ export interface TurnMessage {
 export interface AIProvider {
   streamTurn(params: {
     apiKey: string;
+    system: string;
     history: TurnMessage[];
     userText: string;
     tools: ToolDefinition[];

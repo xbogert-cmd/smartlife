@@ -8,6 +8,7 @@ import { TOOLS } from './tools/registry';
 import { getProvider } from './router';
 import type { ToolContext } from './tools/types';
 import type { AIProvider, StreamEvent } from './providers/types';
+import { buildSystemPrompt, type ViewContext } from './viewContext';
 
 // ponytail: single in-flight flag, only one conversation exists app-wide today.
 // Upgrade to a Set keyed by conversation id if multi-conversation support lands.
@@ -17,6 +18,7 @@ export async function handleSendMessage(
   db: Database.Database,
   getWindow: () => BrowserWindow | null,
   userText: string,
+  view: ViewContext | null,
   provider: AIProvider = getProvider()
 ): Promise<void> {
   const send = (event: StreamEvent): void => getWindow()?.webContents.send('ai:stream-event', event);
@@ -57,7 +59,15 @@ export async function handleSendMessage(
     };
 
     try {
-      const finalContent = await provider.streamTurn({ apiKey, history, userText, tools: TOOLS, ctx, onEvent: send });
+      const finalContent = await provider.streamTurn({
+        apiKey,
+        system: buildSystemPrompt(db, view),
+        history,
+        userText,
+        tools: TOOLS,
+        ctx,
+        onEvent: send,
+      });
       appendMessage(db, conversationId, 'user', [{ type: 'text', text: userText }]);
       appendMessage(db, conversationId, 'assistant', finalContent as unknown[]);
     } catch (error) {

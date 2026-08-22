@@ -6,6 +6,7 @@ import type { AiMode } from './permissions';
 import { getOrCreateConversationId, getMessages } from './conversation';
 import { resolveConfirmation } from './confirmations';
 import { handleSendMessage } from './chatController';
+import type { ViewContext } from './viewContext';
 
 export function registerAiIpcHandlers(db: Database.Database, getWindow: () => BrowserWindow | null): void {
   ipcMain.handle('ai:get-api-key-status', () => hasStoredApiKey(db));
@@ -18,7 +19,9 @@ export function registerAiIpcHandlers(db: Database.Database, getWindow: () => Br
     setAiMode(db, mode);
   });
 
-  ipcMain.handle('ai:send-message', (_event, text: string) => handleSendMessage(db, getWindow, text));
+  ipcMain.handle('ai:send-message', (_event, text: string, view: ViewContext | null) =>
+    handleSendMessage(db, getWindow, text, view ?? null)
+  );
   ipcMain.handle('ai:confirm-response', (_event, id: string, approved: boolean) => {
     resolveConfirmation(id, approved);
   });

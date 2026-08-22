@@ -21,7 +21,7 @@ function toBetaTools(tools: ToolDefinition[], ctx: ToolContext) {
 }
 
 export const claudeProvider: AIProvider = {
-  async streamTurn({ apiKey, history, userText, tools, ctx, onEvent }) {
+  async streamTurn({ apiKey, system, history, userText, tools, ctx, onEvent }) {
     const client = new Anthropic({ apiKey });
     const toolLabels = new Map(tools.map((tool) => [tool.schema.name, tool.label]));
 
@@ -35,6 +35,7 @@ export const claudeProvider: AIProvider = {
     const runner = client.beta.messages.toolRunner({
       model: MODEL,
       max_tokens: 4096,
+      system,
       tools: toBetaTools(tools, ctx),
       messages,
       stream: true,
