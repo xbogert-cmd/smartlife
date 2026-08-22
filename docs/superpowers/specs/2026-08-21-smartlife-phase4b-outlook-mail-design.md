@@ -74,9 +74,10 @@ Inherited from the project and binding on every task:
 - Electron `safeStorage` (Keychain-backed) for all secrets; never a `.env` file.
 - Access tokens are never persisted — in-memory cache only, matching
   `calendar/token.ts`.
-- Migrations are additive and numbered; this phase adds `0006_mail.sql`. (Was
-  `0005`; renumbered on 2026-08-21 because Phase 5 took `0005_browser.sql` while
-  this phase sat blocked.)
+- Migrations are additive and numbered; this phase adds `0007_mail.sql`. (Was
+  `0005`; renumbered on 2026-08-21 because Phase 5 took `0005_browser.sql`, and
+  again on 2026-08-22 because Phase 3b took `0006_submissions.sql`, while this
+  phase sat blocked.)
 - Main-process-only network access. The renderer reaches Graph only via IPC.
 - No raw `shell` or Node API exposed to the renderer through the preload bridge.
 - TDD with real assertions; no test may assert only that a function was called.
@@ -155,7 +156,7 @@ src/main/mail/extract.ts            Email -> EventCandidate[] (the reusable seam
 src/main/mail/scheduler.ts          Thin wrapper over the shared scheduler
 src/main/mail/ipc.ts                IPC channels
 
-src/main/db/migrations/0006_mail.sql
+src/main/db/migrations/0007_mail.sql
 
 src/main/ai/tools/mailSearch.ts
 src/main/ai/tools/mailRead.ts
@@ -200,7 +201,7 @@ authorize-URL construction, token endpoint, and token-response parsing.
 
 ### Storage
 
-`src/main/db/migrations/0006_mail.sql`:
+`src/main/db/migrations/0007_mail.sql`:
 
 ```sql
 create table mail_messages (
@@ -341,6 +342,21 @@ const PAUSE_TIERS: Record<AiMode, ToolTier[]> = {
   auto: ['ALWAYS_CONFIRM'],
 };
 ```
+
+> **Superseded on 2026-08-22, while this phase was blocked.** Two things above
+> are now out of date and must not be re-implemented from this text:
+>
+> 1. **The tier already exists.** Phase 3b
+>    (`2026-08-22-smartlife-phase3b-canvas-submissions-design.md`) delivers
+>    `ALWAYS_CONFIRM` for `canvas_submit_assignment`. When this phase unblocks,
+>    `mail_send` joins the existing tier rather than introducing it.
+> 2. **`assist` now also pauses `SAFE_WRITE`.** Phase 5's final review found the
+>    original `assist` row let `SAFE_WRITE` calendar writes run unconfirmed,
+>    contradicting that phase's own safety claim; the user chose to close the gap
+>    rather than correct the prose. The live row is
+>    `assist: ['SAFE_WRITE', 'CONSEQUENTIAL', 'ALWAYS_CONFIRM']`, matching `ask`.
+>
+> Read `src/main/ai/permissions.ts` as the source of truth, not this block.
 
 The tier is for actions that are both **irreversible and outward-facing** —
 where the consequence leaves the machine and reaches another person. `mail_send`
