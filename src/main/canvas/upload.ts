@@ -72,7 +72,10 @@ export async function uploadSubmissionFile(
     form.append(key, value);
   }
   // ...and the file goes in LAST. Canvas's signature validation depends on it.
-  form.append('file', new Blob([file.data], { type: file.contentType }), file.name);
+  // Node's undici BlobPart type wants ArrayBufferView<ArrayBuffer> specifically;
+  // a plain Uint8Array<ArrayBufferLike> doesn't structurally match under newer
+  // TypeScript, even though it's the exact same bytes at runtime.
+  form.append('file', new Blob([file.data as unknown as BlobPart], { type: file.contentType }), file.name);
 
   let uploadResponse: Response;
   try {

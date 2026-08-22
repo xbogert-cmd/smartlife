@@ -70,9 +70,11 @@ describe('uploadSubmissionFile', () => {
     const headers = new Headers(uploadInit.headers ?? {});
     expect(headers.has('authorization')).toBe(false);
     // And the token must not have leaked in under any other header either.
-    for (const [, value] of headers.entries()) {
+    // (forEach, not entries(), because @types/node's undici Headers type
+    // doesn't declare entries() as iterable the way the DOM lib does.)
+    headers.forEach((value) => {
       expect(value).not.toContain('test-token');
-    }
+    });
   });
 
   it('passes every upload_param through unmodified with the file field LAST', async () => {
@@ -82,7 +84,10 @@ describe('uploadSubmissionFile', () => {
     await uploadSubmissionFile(CREDS, 42, 10, FILE);
 
     const body = fetchMock.mock.calls[1][1].body as FormData;
-    const keys = Array.from(body.keys());
+    // forEach, not keys(), because @types/node's undici FormData type doesn't
+    // declare keys() as iterable the way the DOM lib does.
+    const keys: string[] = [];
+    body.forEach((_value, key) => keys.push(key));
     expect(keys).toEqual(['key', 'signature', 'policy', 'file']);
     expect(body.get('key')).toBe('abc/def');
     expect(body.get('signature')).toBe('sig-value');
