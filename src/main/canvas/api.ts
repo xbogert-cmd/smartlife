@@ -1,4 +1,4 @@
-import { canvasFetchAll, canvasFetchOne, type CanvasCredentials } from './client';
+import { canvasFetchAll, canvasFetchOne, canvasPost, type CanvasCredentials } from './client';
 
 export interface CanvasUser {
   id: number;
@@ -152,4 +152,76 @@ export function getPage(
 /** Canvas file URLs expire, so this is called at click time — never cached. */
 export function getFile(creds: CanvasCredentials, fileId: number): Promise<CanvasFile> {
   return canvasFetchOne<CanvasFile>(creds, `/api/v1/files/${fileId}`);
+}
+
+export interface CanvasDiscussionTopic {
+  id: number;
+  title?: string;
+  /** Null unless the topic is graded. This is the ONLY link back to an assignment. */
+  assignment_id?: number | null;
+  require_initial_post?: boolean | null;
+}
+
+export interface CanvasSubmissionResult {
+  id?: number;
+  submitted_at?: string | null;
+  workflow_state?: string;
+  attempt?: number | null;
+  score?: number | null;
+  grade?: string | null;
+}
+
+export interface SubmissionPayload {
+  submission_type: string;
+  body?: string;
+  file_ids?: number[];
+  url?: string;
+}
+
+export function listDiscussionTopics(
+  creds: CanvasCredentials,
+  courseId: number
+): Promise<CanvasDiscussionTopic[]> {
+  return canvasFetchAll<CanvasDiscussionTopic>(
+    creds,
+    `/api/v1/courses/${courseId}/discussion_topics`
+  );
+}
+
+/** `self` resolves to the token's own user, which is the only submission we may read. */
+export function getMySubmission(
+  creds: CanvasCredentials,
+  courseId: number,
+  assignmentId: number
+): Promise<CanvasSubmissionResult> {
+  return canvasFetchOne<CanvasSubmissionResult>(
+    creds,
+    `/api/v1/courses/${courseId}/assignments/${assignmentId}/submissions/self`
+  );
+}
+
+export function postSubmission(
+  creds: CanvasCredentials,
+  courseId: number,
+  assignmentId: number,
+  payload: SubmissionPayload
+): Promise<CanvasSubmissionResult> {
+  return canvasPost<CanvasSubmissionResult>(
+    creds,
+    `/api/v1/courses/${courseId}/assignments/${assignmentId}/submissions`,
+    { submission: payload }
+  );
+}
+
+export function postDiscussionEntry(
+  creds: CanvasCredentials,
+  courseId: number,
+  topicId: number,
+  message: string
+): Promise<{ id?: number }> {
+  return canvasPost<{ id?: number }>(
+    creds,
+    `/api/v1/courses/${courseId}/discussion_topics/${topicId}/entries`,
+    { message }
+  );
 }
