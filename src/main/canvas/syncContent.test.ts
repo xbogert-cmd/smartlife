@@ -8,6 +8,7 @@ vi.mock('./api', () => ({
   listModules: vi.fn(),
   listModuleItems: vi.fn(),
   listFiles: vi.fn(),
+  listDiscussionTopics: vi.fn(),
   getPage: vi.fn(),
   getFile: vi.fn(),
   getSelf: vi.fn(),
@@ -46,6 +47,14 @@ create table canvas_pages (
   url text not null, title text, body text, updated_at text,
   synced_at text not null default (datetime('now')), primary key (course_id, url)
 );
+create table canvas_discussion_topics (
+  id integer primary key,
+  course_id integer not null references canvas_courses(id) on delete cascade,
+  assignment_id integer,
+  title text,
+  require_initial_post integer not null default 0,
+  synced_at text not null default (datetime('now'))
+);
 create table canvas_sync_state (key text primary key, value text not null);
 `;
 
@@ -61,8 +70,10 @@ beforeEach(() => {
   vi.mocked(api.listModules).mockReset();
   vi.mocked(api.listModuleItems).mockReset();
   vi.mocked(api.listFiles).mockReset();
+  vi.mocked(api.listDiscussionTopics).mockReset();
   vi.mocked(api.getPage).mockReset();
   vi.mocked(api.listFiles).mockResolvedValue([]);
+  vi.mocked(api.listDiscussionTopics).mockResolvedValue([]);
 });
 
 describe('syncCourseContent', () => {

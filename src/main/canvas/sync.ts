@@ -3,7 +3,7 @@ import type { CanvasCredentials } from './client';
 import { CanvasAuthError } from './errors';
 import * as api from './api';
 import type { CanvasAssignment, CanvasCourse } from './api';
-import type { CanvasFile, CanvasModule, CanvasModuleItem } from './api';
+import type { CanvasDiscussionTopic, CanvasFile, CanvasModule, CanvasModuleItem } from './api';
 
 export const SYNC_KEY_LAST_CORE = 'last_core_sync';
 export const SYNC_KEY_TOKEN_INVALID = 'token_invalid';
@@ -342,6 +342,48 @@ function upsertFiles(
 }
 
 /**
+ * Canvas assignments do not carry their discussion topic; only the topic
+ * carries `assignment_id`. Storing topics per course is what makes the
+ * assignment -> topic direction resolvable at submit time.
+ */
+export function upsertDiscussionTopics(
+  db: Database.Database,
+  courseId: number,
+  topics: CanvasDiscussionTopic[],
+  syncedAt: string
+): void {
+  const upsert = db.prepare(
+    `insert into canvas_discussion_topics (id, course_id, assignment_id, title, require_initial_post, synced_at)
+     values (@id, @course_id, @assignment_id, @title, @require_initial_post, @synced_at)
+     on conflict(id) do update set
+       course_id = excluded.course_id, assignment_id = excluded.assignment_id,
+       title = excluded.title, require_initial_post = excluded.require_initial_post,
+       synced_at = excluded.synced_at`
+  );
+  db.transaction(() => {
+    for (const topic of topics) {
+      upsert.run({
+        id: topic.id,
+        course_id: courseId,
+        assignment_id: topic.assignment_id ?? null,
+        title: topic.title ?? null,
+        require_initial_post: topic.require_initial_post === true ? 1 : 0,
+        synced_at: syncedAt,
+      });
+    }
+    const keep = topics.map((t) => t.id);
+    if (keep.length === 0) {
+      db.prepare('delete from canvas_discussion_topics where course_id = ?').run(courseId);
+    } else {
+      const placeholders = keep.map(() => '?').join(',');
+      db.prepare(
+        `delete from canvas_discussion_topics where course_id = ? and id not in (${placeholders})`
+      ).run(courseId, ...keep);
+    }
+  })();
+}
+
+/**
  * Tier-2 sync for a single course: modules + items + file list. Called the
  * first time a course is opened, then on explicit refresh. Serial, like syncCore.
  */
@@ -395,6 +437,19 @@ export async function syncCourseContent(
     }
     // An instructor can disable the Files tab, which surfaces as a 403.
     errors.push(`Files: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  try {
+    const topics = await api.listDiscussionTopics(creds, courseId);
+    upsertDiscussionTopics(db, courseId, topics, syncedAt);
+  } catch (error) {
+    if (error instanceof CanvasAuthError) {
+      setSyncState(db, SYNC_KEY_TOKEN_INVALID, '1');
+      return { ok: false, tokenInvalid: true, errors: [error.message] };
+    }
+    // An instructor can disable Discussions, which surfaces as a 403. A course
+    // with no discussions is normal, not a sync failure.
+    errors.push(`Discussions: ${error instanceof Error ? error.message : String(error)}`);
   }
 
   clearSyncState(db, SYNC_KEY_TOKEN_INVALID);
