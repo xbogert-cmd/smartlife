@@ -165,6 +165,46 @@ describe('canvas:submit', () => {
   });
 });
 
+describe('canvas:submit — file provenance', () => {
+  it('refuses a filePath that was never returned by canvas:pick-file', async () => {
+    setup();
+    const result = (await invoke('canvas:submit', 10, {
+      kind: 'file',
+      filePath: '/etc/passwd',
+    })) as { ok: boolean; message: string };
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain('file picker');
+    expect(submitAssignment).not.toHaveBeenCalled();
+  });
+
+  it('submits successfully when the filePath came from canvas:pick-file', async () => {
+    setup();
+    // pick-file's handler stats the real path, so this needs a file that
+    // actually exists on disk — this test file itself will do.
+    const realPath = new URL(import.meta.url).pathname;
+    vi.mocked(dialog.showOpenDialog).mockResolvedValue({
+      canceled: false,
+      filePaths: [realPath],
+    } as never);
+    const picked = (await invoke('canvas:pick-file')) as { path: string } | null;
+    expect(picked?.path).toBe(realPath);
+
+    const result = (await invoke('canvas:submit', 10, {
+      kind: 'file',
+      filePath: realPath,
+    })) as { ok: boolean };
+
+    expect(result.ok).toBe(true);
+    expect(submitAssignment).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      10,
+      { kind: 'file', filePath: realPath }
+    );
+  });
+});
+
 describe('canvas:pick-file', () => {
   it('returns null when the user cancels', async () => {
     setup();

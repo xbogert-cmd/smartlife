@@ -1,4 +1,5 @@
 import type { SubmitInput } from './types';
+import { useBrowserSuspend } from '../browser/useBrowserSuspend';
 
 interface SubmitConfirmProps {
   assignmentName: string;
@@ -25,6 +26,10 @@ export function SubmitConfirm({
   onCancel,
 }: SubmitConfirmProps): React.JSX.Element {
   const text = input.kind === 'text' ? input.body : input.kind === 'discussion' ? input.message : null;
+
+  // Always a modal whenever mounted — the browser view must never composite
+  // above it, so this is unconditionally true, not the caller's decision.
+  useBrowserSuspend(true);
 
   return (
     <div

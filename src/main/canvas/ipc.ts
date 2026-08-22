@@ -31,6 +31,14 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+// The AI's canvas_submit_assignment tool deliberately has no file/path
+// parameter, so a prompt-injected model can never name an arbitrary local
+// file for upload. canvas:submit must hold the same line for the renderer:
+// a filePath is only honored here if it was actually handed back by
+// canvas:pick-file in this session, never an arbitrary string the caller
+// supplies.
+const pickedFilePaths = new Set<string>();
+
 export function registerCanvasIpcHandlers(
   db: Database.Database,
   getWindow: () => BrowserWindow | null,
@@ -147,6 +155,7 @@ export function registerCanvasIpcHandlers(
     const filePath = result.filePaths[0];
     try {
       const info = await stat(filePath);
+      pickedFilePaths.add(filePath);
       return { path: filePath, name: basename(filePath), size: info.size };
     } catch {
       return null;
@@ -158,6 +167,15 @@ export function registerCanvasIpcHandlers(
     if (creds === null) {
       return { ok: false, verified: false, submittedAt: null, message: 'Canvas is not connected.' };
     }
+    if (input.kind === 'file' && !pickedFilePaths.has(input.filePath)) {
+      return {
+        ok: false,
+        verified: false,
+        submittedAt: null,
+        message: 'That file was not selected through the file picker.',
+      };
+    }
+    if (input.kind === 'file') pickedFilePaths.delete(input.filePath);
     // Same guard canvas:sync-course uses: a submission must never overlap a
     // background sync.
     const outcome = await scheduler.runExclusive(() =>

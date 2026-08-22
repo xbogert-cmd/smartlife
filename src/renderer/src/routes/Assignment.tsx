@@ -7,7 +7,7 @@ import { SubmitConfirm } from '../assignment/SubmitConfirm';
 import { TextEntryPanel } from '../assignment/TextEntryPanel';
 import type { PickedFile, SubmitInput } from '../assignment/types';
 import { sanitizeHtml } from '../school/sanitizeHtml';
-import { formatDue } from '../school/formatters';
+import { formatDue, formatRelative } from '../school/formatters';
 import { SCHOOL_ACCENT } from '../school/types';
 
 function StatusLine({
@@ -26,7 +26,7 @@ function StatusLine({
       <span style={{ color: 'var(--color-text-muted)' }}>Not submitted</span>
     );
   }
-  const when = submittedAt === null ? '' : ` ${formatDue(submittedAt)}`;
+  const when = submittedAt === null ? '' : ` ${formatRelative(submittedAt)}`;
   const graded = score === null ? '' : ` — scored ${score}${pointsPossible === null ? '' : ` / ${pointsPossible}`}`;
   return <span style={{ color: SCHOOL_ACCENT }}>{`Submitted${when}${graded}`}</span>;
 }

@@ -1,9 +1,36 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SubmitConfirm } from './SubmitConfirm';
 
+const suspend = vi.fn(async () => {});
+const resume = vi.fn(async () => {});
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  (window as unknown as { smartlife: unknown }).smartlife = {
+    browser: { suspend, resume },
+  };
+});
+
 describe('SubmitConfirm', () => {
+  it('suspends the browser view while mounted and resumes on unmount', () => {
+    const { unmount } = render(
+      <SubmitConfirm
+        assignmentName="Ch 4"
+        input={{ kind: 'text', body: 'x' }}
+        isDiscussion={false}
+        onConfirm={() => {}}
+        onCancel={() => {}}
+      />
+    );
+    expect(suspend).toHaveBeenCalledOnce();
+    expect(resume).not.toHaveBeenCalled();
+
+    unmount();
+    expect(resume).toHaveBeenCalledOnce();
+  });
+
   it('shows the full text untruncated', () => {
     const long = 'a'.repeat(3000);
     render(

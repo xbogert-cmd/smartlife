@@ -77,7 +77,7 @@ export function ChatPanel({
           <div
             style={{ border: '1px solid var(--color-border)', borderRadius: 8, padding: 12, backgroundColor: 'var(--color-surface)' }}
           >
-            <p style={{ color: 'var(--color-text)', marginBottom: 8 }}>{pendingConfirm.description}</p>
+            <p style={{ color: 'var(--color-text)', marginBottom: 8, whiteSpace: 'pre-wrap' }}>{pendingConfirm.description}</p>
             <div className="flex gap-2">
               <button
                 type="button"

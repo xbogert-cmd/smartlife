@@ -41,6 +41,8 @@ beforeEach(() => {
       openTab: vi.fn().mockResolvedValue('t1'),
       setBounds: vi.fn().mockResolvedValue(undefined),
       setRouteActive: vi.fn().mockResolvedValue(undefined),
+      suspend: vi.fn().mockResolvedValue(undefined),
+      resume: vi.fn().mockResolvedValue(undefined),
     },
   };
 });
@@ -86,7 +88,12 @@ describe('Assignment route', () => {
       detail({ hasSubmitted: true, submittedAt: '2026-08-20T10:00:00Z' })
     );
     renderAt();
-    expect(await screen.findByText(/submitted/i)).toBeTruthy();
+    // formatDue is for due dates and returns 'overdue' for anything in the
+    // past, which a submitted timestamp always is — the submitted line must
+    // use formatRelative instead, never rendering "Submitted overdue".
+    const status = await screen.findByText(/submitted/i);
+    expect(status.textContent).not.toMatch(/overdue/i);
+    expect(status.textContent).toMatch(/ago/i);
   });
 
   it('reports a missing assignment instead of rendering an empty shell', async () => {

@@ -285,4 +285,75 @@ describe('submitAssignment — verification', () => {
     };
     expect(row.has_submitted).toBe(0);
   });
+
+  it('reports ok-but-unverified when Canvas read-back resolves with no evidence of submission', async () => {
+    // Canvas can return 200 with a lagging or no-op record — submitted_at
+    // still null, workflow_state still unsubmitted. The call not throwing is
+    // not proof anything was recorded.
+    vi.mocked(api.getMySubmission).mockResolvedValue({
+      id: 900,
+      submitted_at: null,
+      workflow_state: 'unsubmitted',
+      score: null,
+      grade: null,
+    });
+    const db = setup('["online_text_entry"]');
+
+    const outcome = await submitAssignment(db, CREDS, 10, { kind: 'text', body: 'x' });
+
+    expect(outcome.ok).toBe(true);
+    expect(outcome.verified).toBe(false);
+    expect(outcome.submittedAt).toBeNull();
+  });
+
+  it('does not mark the row submitted when the read-back has no submitted_at', async () => {
+    vi.mocked(api.getMySubmission).mockResolvedValue({
+      id: 900,
+      submitted_at: null,
+      workflow_state: 'unsubmitted',
+      score: null,
+      grade: null,
+    });
+    const db = setup('["online_text_entry"]');
+
+    await submitAssignment(db, CREDS, 10, { kind: 'text', body: 'x' });
+
+    const row = db.prepare('select has_submitted from canvas_assignments where id = 10').get() as {
+      has_submitted: number;
+    };
+    expect(row.has_submitted).toBe(0);
+  });
+
+  it('does not clear the draft when the read-back has no submitted_at', async () => {
+    vi.mocked(api.getMySubmission).mockResolvedValue({
+      id: 900,
+      submitted_at: null,
+      workflow_state: 'unsubmitted',
+      score: null,
+      grade: null,
+    });
+    const db = setup('["online_text_entry"]');
+    saveDraft(db, 10, 'keep me');
+
+    await submitAssignment(db, CREDS, 10, { kind: 'text', body: 'keep me' });
+
+    expect(getDraft(db, 10)).toBe('keep me');
+  });
+});
+
+describe('submitAssignment — malformed input', () => {
+  it('fails without sending anything when input.kind is unrecognized', async () => {
+    const db = setup('["online_text_entry"]');
+    const outcome = await submitAssignment(
+      db,
+      CREDS,
+      10,
+      { kind: 'bogus' } as unknown as Parameters<typeof submitAssignment>[3]
+    );
+
+    expect(outcome.ok).toBe(false);
+    expect(api.postSubmission).not.toHaveBeenCalled();
+    expect(api.postDiscussionEntry).not.toHaveBeenCalled();
+    expect(api.getMySubmission).not.toHaveBeenCalled();
+  });
 });

@@ -134,6 +134,12 @@ export async function submitAssignment(
         submission_type: 'online_upload',
         file_ids: [fileId],
       });
+    } else {
+      // Unreachable through the validated UI/AI paths, but canvas:submit's IPC
+      // handler performs no runtime validation of input.kind — an untyped or
+      // malformed payload must fail loudly here rather than silently skip
+      // every branch and fall through into verification.
+      return failure('Unsupported submission input.');
     }
   } catch (error) {
     return failure(describeError(error));
@@ -152,12 +158,25 @@ export async function submitAssignment(
     };
   }
 
+  // "The read-back call didn't throw" is not proof Canvas actually recorded
+  // anything — a 200 with submitted_at still null (a lagging record, or a
+  // no-op accept) must not be treated as confirmation.
+  const submittedAt = confirmed.submitted_at;
+  if (typeof submittedAt !== 'string' || submittedAt.length === 0) {
+    return {
+      ok: true,
+      verified: false,
+      submittedAt: null,
+      message: "Submitted, but Canvas hasn't recorded it yet — check Canvas.",
+    };
+  }
+
   db.prepare(
     `update canvas_assignments
      set has_submitted = 1, submitted_at = ?, score = ?, grade = ?, workflow_state = ?
      where id = ?`
   ).run(
-    confirmed.submitted_at ?? null,
+    submittedAt,
     confirmed.score ?? null,
     confirmed.grade ?? null,
     confirmed.workflow_state ?? null,
@@ -169,7 +188,7 @@ export async function submitAssignment(
   return {
     ok: true,
     verified: true,
-    submittedAt: confirmed.submitted_at ?? null,
+    submittedAt,
     message: 'Submitted and confirmed by Canvas.',
   };
 }
