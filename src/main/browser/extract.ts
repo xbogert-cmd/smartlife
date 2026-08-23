@@ -9,6 +9,183 @@ export const MAX_EXTRACT_CHARS = 40000;
  */
 export const MAX_TITLE_CHARS = 500;
 
+/**
+ * Shared by every script this module builds. Element.checkVisibility()
+ * already catches display:none/visibility:hidden/opacity:0/the hidden
+ * attribute; this adds the two more surgical hiding techniques it does NOT
+ * catch on its own:
+ *
+ *  - Zero rendered size (width or height collapsed to 0), still fully
+ *    present and readable via the DOM.
+ *  - Positioned far outside the document -- the classic "left: -9999px"
+ *    trick. Only a large NEGATIVE page offset is flagged; a large positive
+ *    one is completely normal below-the-fold content that is fully visible
+ *    once scrolled to, and must not be treated as hidden.
+ *
+ * What this does NOT catch, on purpose, and does not pretend to: text
+ * colored to match its background. Reliably resolving actual rendered
+ * color -- including inherited values, gradients, and background images --
+ * is not something this filter attempts.
+ */
+const VISIBILITY_CHECK_JS = `function isVisible(el) {
+    if (!el.checkVisibility({ checkVisibilityCSS: true, checkOpacity: true })) return false;
+    var rect = el.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return false;
+    var OFF_SCREEN_MARGIN = 5000;
+    var pageX = rect.left + window.scrollX;
+    var pageY = rect.top + window.scrollY;
+    if (pageX < -OFF_SCREEN_MARGIN || pageY < -OFF_SCREEN_MARGIN) return false;
+    return true;
+  }`;
+
+/**
+ * Shared by buildElementListScript and buildElementActionScript so the
+ * label/role a listing shows and the label/role an action re-verifies
+ * against right before executing are always computed by the same logic --
+ * they can never quietly drift apart into two different definitions of
+ * "what this element is called".
+ */
+const DESCRIBE_ELEMENT_JS = `function labelFor(el) {
+    var ariaLabel = el.getAttribute('aria-label');
+    if (ariaLabel) return ariaLabel.trim();
+    if (el.id) {
+      var labelEl = document.querySelector('label[for="' + el.id + '"]');
+      if (labelEl && labelEl.textContent) return labelEl.textContent.trim();
+    }
+    var closestLabel = el.closest('label');
+    if (closestLabel && closestLabel.textContent) return closestLabel.textContent.trim();
+    if (el.tagName === 'BUTTON' || el.tagName === 'A') return (el.textContent || '').trim();
+    if ((el.tagName === 'INPUT') && (el.type === 'submit' || el.type === 'button') && el.value) return el.value;
+    var placeholder = el.getAttribute('placeholder');
+    if (placeholder) return placeholder.trim();
+    return '';
+  }
+  function describeElement(el) {
+    var tag = el.tagName;
+    var type = (el.getAttribute('type') || '').toLowerCase();
+    var role = null;
+    if (tag === 'BUTTON' || (tag === 'INPUT' && (type === 'submit' || type === 'button'))) role = 'button';
+    else if (tag === 'A') role = 'link';
+    else if (tag === 'SELECT') role = 'select';
+    else if (tag === 'INPUT' && type === 'checkbox') role = 'checkbox';
+    else if (tag === 'INPUT' && type === 'radio') role = 'radio';
+    else if (tag === 'TEXTAREA' || (tag === 'INPUT' && (type === '' || type === 'text' || type === 'email' || type === 'number' || type === 'search' || type === 'tel' || type === 'url'))) role = 'text';
+    if (!role) return null;
+    var label = labelFor(el);
+    var value = role === 'text' ? el.value : null;
+    var checked = (role === 'checkbox' || role === 'radio') ? !!el.checked : null;
+    var selectedOptionText = null;
+    var options = null;
+    if (role === 'select') {
+      options = Array.prototype.map.call(el.options, function (o) { return o.textContent.trim(); });
+      var selected = el.options[el.selectedIndex];
+      selectedOptionText = selected ? selected.textContent.trim() : null;
+    }
+    return { role: role, label: label, value: value, checked: checked, selectedOptionText: selectedOptionText, options: options };
+  }`;
+
+export interface RawElementDescriptor {
+  role: 'button' | 'link' | 'text' | 'checkbox' | 'radio' | 'select';
+  label: string;
+  value: string | null;
+  checked: boolean | null;
+  selectedOptionText: string | null;
+  options: string[] | null;
+}
+
+/**
+ * Walks the page for interactive elements, tags each one with a
+ * data-smartlife-ref attribute the AI does not choose (assigned main-side
+ * after this script returns, by refs.ts), and returns their role, label,
+ * and current state. Any stale tags from an earlier call are stripped
+ * first, so an old attribute can never accidentally satisfy a later
+ * querySelector.
+ */
+export function buildElementListScript(maxElements: number): string {
+  return `(function () {
+  var MAX = ${maxElements};
+  ${VISIBILITY_CHECK_JS}
+  ${DESCRIBE_ELEMENT_JS}
+  var existing = document.querySelectorAll('[data-smartlife-ref]');
+  for (var i = 0; i < existing.length; i++) existing[i].removeAttribute('data-smartlife-ref');
+  var candidates = document.querySelectorAll('button, a[href], input, textarea, select');
+  var out = [];
+  for (var j = 0; j < candidates.length && out.length < MAX; j++) {
+    var el = candidates[j];
+    if (!isVisible(el)) continue;
+    var described = describeElement(el);
+    if (!described) continue;
+    out.push(described);
+  }
+  return out;
+})()`;
+}
+
+/**
+ * Re-locates the element tagged with the given ref (assigned by a prior
+ * buildElementListScript call) and performs one action against it, after
+ * re-deriving its current role/label so the caller can verify nothing
+ * changed since the ref was issued.
+ */
+export function buildElementActionScript(
+  ref: string,
+  kind: 'click' | 'type' | 'select',
+  payload: string | null
+): string {
+  const refLiteral = JSON.stringify(ref);
+  const payloadLiteral = JSON.stringify(payload ?? '');
+  return `(function () {
+  ${DESCRIBE_ELEMENT_JS}
+  var el = document.querySelector('[data-smartlife-ref="' + ${refLiteral}.replace(/"/g, '') + '"]');
+  if (!el) return { found: false };
+  var described = describeElement(el);
+  if (!described) return { found: false };
+  var kind = ${JSON.stringify(kind)};
+  var payload = ${payloadLiteral};
+  if (kind === 'click') {
+    el.click();
+  } else if (kind === 'type') {
+    el.value = payload;
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  } else if (kind === 'select') {
+    var match = null;
+    for (var i = 0; i < el.options.length; i++) {
+      if (el.options[i].textContent.trim() === payload) { match = el.options[i]; break; }
+    }
+    if (!match) {
+      var available = Array.prototype.map.call(el.options, function (o) { return o.textContent.trim(); });
+      return { found: true, role: described.role, label: described.label, optionNotFound: true, availableOptions: available };
+    }
+    el.value = match.value;
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+  return { found: true, role: described.role, label: described.label };
+})()`;
+}
+
+/** Applies the same untrusted-content treatment browser_read_page already gives page text and titles to an element's label and select options. */
+export function shapeElementDescriptor(
+  raw: RawElementDescriptor
+): { role: RawElementDescriptor['role']; label: string; state: string | null; options: string[] | null } {
+  const label = neutralizeMarkerText(raw.label);
+  if (raw.role === 'text') {
+    return { role: raw.role, label, state: raw.value !== null ? neutralizeMarkerText(raw.value) : null, options: null };
+  }
+  if (raw.role === 'checkbox' || raw.role === 'radio') {
+    return { role: raw.role, label, state: raw.checked ? 'checked' : 'unchecked', options: null };
+  }
+  if (raw.role === 'select') {
+    return {
+      role: raw.role,
+      label,
+      state: raw.selectedOptionText !== null ? neutralizeMarkerText(raw.selectedOptionText) : null,
+      options: (raw.options ?? []).map((o) => neutralizeMarkerText(o)),
+    };
+  }
+  return { role: raw.role, label, state: null, options: null };
+}
+
 export interface RawExtraction {
   title: string;
   text: string;
@@ -41,6 +218,7 @@ export function buildExtractionScript(maxChars: number): string {
   var rawTitle = document.title || '';
   var title = rawTitle.length > MAX_TITLE ? rawTitle.slice(0, MAX_TITLE) + ' [title truncated]' : rawTitle;
   var EXCLUDED = { SCRIPT: 1, STYLE: 1, NOSCRIPT: 1, NAV: 1, FOOTER: 1, ASIDE: 1, IFRAME: 1, SVG: 1 };
+  ${VISIBILITY_CHECK_JS}
   var isPdf = document.contentType === 'application/pdf';
   var root = document.querySelector('main, article') || document.body;
   if (!root) {
@@ -57,7 +235,7 @@ export function buildExtractionScript(maxChars: number): string {
       // hidden attribute, opacity:0) must not reach the model -- it can
       // read a page differently than what is on screen otherwise.
       var visibleParent = node.parentElement;
-      if (visibleParent && !visibleParent.checkVisibility({ checkVisibilityCSS: true, checkOpacity: true })) {
+      if (visibleParent && !isVisible(visibleParent)) {
         return NodeFilter.FILTER_REJECT;
       }
       return NodeFilter.FILTER_ACCEPT;
@@ -149,10 +327,13 @@ export function neutralizeMarkerText(text: string): string {
  * Wraps extracted text before it reaches the model.
  *
  * Be clear about what this buys: fencing is mitigation, not a guarantee -- no
- * prompt-level defence is airtight. The structural protection is that Phase 5
- * ships no tool that can act on a page, so the worst a hostile page can
- * attempt is to talk the model into using tools it already holds, all of which
- * are tier-gated.
+ * prompt-level defence is airtight. As of Phase 5b the structural protection
+ * is no longer "no tool can act on a page" -- it is that every action-shaped
+ * tool (browser_click/type/select) requires the user to see a plain
+ * description of exactly what is about to happen and explicitly approve it,
+ * before it happens. The worst a hostile page can attempt is to talk the
+ * model into proposing an action the user did not ask for; the confirmation
+ * gate, not this fence, is what stops it from actually happening.
  *
  * `nonce` defaults to a fresh random value per call; tests pass a fixed one
  * for deterministic assertions. It is not a module-level mutable so that
