@@ -46,6 +46,7 @@ function mockSmartlife(getValue: 'light' | 'dark' | 'system' = 'dark') {
       testConnection: vi.fn(),
       syncNow: vi.fn(),
       getUpcoming: vi.fn().mockResolvedValue([]),
+      getOverdue: vi.fn().mockResolvedValue([]),
       getGrades: vi.fn().mockResolvedValue([]),
       getAnnouncements: vi.fn().mockResolvedValue([]),
       getCourse: vi.fn().mockResolvedValue(null),

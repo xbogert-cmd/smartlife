@@ -15,6 +15,7 @@ import {
   getAssignmentDetail,
   getCourseDetail,
   getCourseGrades,
+  getOverdueAssignments,
   getPageBody,
   getRecentAnnouncements,
   getSyncStatus,
@@ -80,6 +81,7 @@ export function registerCanvasIpcHandlers(
   });
 
   ipcMain.handle('canvas:get-upcoming', (_event, days: number) => getUpcomingAssignments(db, days));
+  ipcMain.handle('canvas:get-overdue', (_event, days: number) => getOverdueAssignments(db, days));
   ipcMain.handle('canvas:get-grades', () => getCourseGrades(db));
   ipcMain.handle('canvas:get-announcements', (_event, limit: number) => getRecentAnnouncements(db, limit));
   ipcMain.handle('canvas:get-course', (_event, courseId: number) => getCourseDetail(db, courseId));

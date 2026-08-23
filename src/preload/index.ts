@@ -146,6 +146,7 @@ const smartlife = {
     testConnection: (): Promise<CanvasActionResult> => ipcRenderer.invoke('canvas:test-connection'),
     syncNow: (): Promise<CanvasSyncStatus> => ipcRenderer.invoke('canvas:sync-now'),
     getUpcoming: (days: number): Promise<unknown[]> => ipcRenderer.invoke('canvas:get-upcoming', days),
+    getOverdue: (days: number): Promise<unknown[]> => ipcRenderer.invoke('canvas:get-overdue', days),
     getGrades: (): Promise<unknown[]> => ipcRenderer.invoke('canvas:get-grades'),
     getAnnouncements: (limit: number): Promise<unknown[]> =>
       ipcRenderer.invoke('canvas:get-announcements', limit),

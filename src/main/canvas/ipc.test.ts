@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import Database from 'better-sqlite3';
 
 const { openExternal, handlers } = vi.hoisted(() => ({
   openExternal: vi.fn().mockResolvedValue(undefined),
@@ -12,12 +13,33 @@ vi.mock('electron', () => ({
 
 import { registerCanvasIpcHandlers } from './ipc';
 
+const SCHEMA = `
+create table settings (key text primary key, value text not null);
+create table canvas_courses (
+  id integer primary key, name text not null, course_code text, term_name text,
+  current_score real, current_grade text, synced_at text not null default (datetime('now'))
+);
+create table canvas_assignments (
+  id integer primary key,
+  course_id integer not null references canvas_courses(id) on delete cascade,
+  name text not null, description text, due_at text, points_possible real, html_url text,
+  submission_types text, has_submitted integer not null default 0, submitted_at text,
+  score real, grade text, workflow_state text,
+  synced_at text not null default (datetime('now'))
+);
+`;
+
+let db: Database.Database;
+
 describe('canvas:open-external protocol allowlist', () => {
   beforeEach(() => {
     handlers.clear();
     openExternal.mockClear();
+    db = new Database(':memory:');
+    db.pragma('foreign_keys = ON');
+    db.exec(SCHEMA);
     registerCanvasIpcHandlers(
-      {} as never,
+      db,
       () => null,
       {} as never
     );
@@ -63,5 +85,33 @@ describe('canvas:open-external protocol allowlist', () => {
     const result = await invoke('not a url');
     expect(result.ok).toBe(false);
     expect(openExternal).not.toHaveBeenCalled();
+  });
+});
+
+describe('canvas:get-overdue', () => {
+  beforeEach(() => {
+    handlers.clear();
+    db = new Database(':memory:');
+    db.pragma('foreign_keys = ON');
+    db.exec(SCHEMA);
+    registerCanvasIpcHandlers(
+      db,
+      () => null,
+      {} as never
+    );
+  });
+
+  it('registers canvas:get-overdue and returns past-due assignments', async () => {
+    const handler = handlers.get('canvas:get-overdue');
+    expect(handler).toBeTypeOf('function');
+
+    db.prepare("insert into canvas_courses (id, name) values (7, 'Weather and Climate')").run();
+    db.prepare(
+      `insert into canvas_assignments (id, course_id, name, due_at, submission_types, has_submitted)
+       values (70, 7, 'Lab 3', ?, '["online_upload"]', 0)`
+    ).run(new Date(Date.now() - 2 * 86_400_000).toISOString());
+
+    const rows = (await handler!({}, 14)) as Array<{ id: number; name: string }>;
+    expect(rows.map((row) => row.name)).toContain('Lab 3');
   });
 });
