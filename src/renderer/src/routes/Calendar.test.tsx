@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { Calendar } from './Calendar';
 
 const calendar = {
@@ -65,6 +65,20 @@ function renderCalendar(): void {
   render(
     <MemoryRouter>
       <Calendar />
+    </MemoryRouter>
+  );
+}
+
+function LocationProbe({ onChange }: { onChange: (search: string) => void }): null {
+  onChange(useLocation().search);
+  return null;
+}
+
+function renderCalendarWithLocationProbe(onChange: (search: string) => void): void {
+  render(
+    <MemoryRouter>
+      <Calendar />
+      <LocationProbe onChange={onChange} />
     </MemoryRouter>
   );
 }
@@ -167,5 +181,34 @@ describe('Calendar', () => {
     await vi.waitFor(() => {
       expect(calendar.getEvents.mock.calls.length).toBeGreaterThan(before);
     });
+  });
+
+  it('puts the selected event id in the URL so useViewContext can see it', async () => {
+    calendar.getEvents.mockResolvedValue([event({ id: 'e1' })]);
+    let search = '';
+    renderCalendarWithLocationProbe((value) => {
+      search = value;
+    });
+
+    const grid = await screen.findByTestId('week-grid');
+    (await within(grid).findByRole('button', { name: /physics lecture/i })).click();
+
+    await vi.waitFor(() => expect(search).toBe('?event=e1'));
+  });
+
+  it('clears the event id from the URL when the dialog is closed', async () => {
+    calendar.getEvents.mockResolvedValue([event({ id: 'e1' })]);
+    let search = '';
+    renderCalendarWithLocationProbe((value) => {
+      search = value;
+    });
+
+    const grid = await screen.findByTestId('week-grid');
+    (await within(grid).findByRole('button', { name: /physics lecture/i })).click();
+    await vi.waitFor(() => expect(search).toBe('?event=e1'));
+
+    screen.getByRole('button', { name: /^cancel$/i }).click();
+
+    await vi.waitFor(() => expect(search).toBe(''));
   });
 });

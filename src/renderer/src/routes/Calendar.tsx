@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useCalendar } from '../calendar/useCalendar';
 import { AgendaPanel } from '../calendar/AgendaPanel';
 import { AllDayStrip } from '../calendar/AllDayStrip';
@@ -18,6 +18,21 @@ export function Calendar(): React.JSX.Element {
     { mode: 'create'; slotStart: Date } | { mode: 'edit'; event: CalendarEvent } | null
   >(null);
   const navigate = useNavigate();
+  const [, setSearchParams] = useSearchParams();
+
+  // The AI's ambient view context (useViewContext.ts) reads this ?event= id
+  // to tell the model which event the user is currently looking at -- it has
+  // no other way to see Calendar's local dialog state. replace: true keeps
+  // the browser back button from stepping through every event click.
+  function openEventDialog(event: CalendarEvent): void {
+    setDialog({ mode: 'edit', event });
+    setSearchParams({ event: event.id }, { replace: true });
+  }
+
+  function closeEventDialog(): void {
+    setDialog(null);
+    setSearchParams({}, { replace: true });
+  }
 
   // null (loading) and "not connected" render the same prompt so there is no
   // flash of an empty grid before status resolves.
@@ -97,14 +112,14 @@ export function Calendar(): React.JSX.Element {
           <AllDayStrip
             days={weekDates}
             events={events}
-            onSelectEvent={(event) => setDialog({ mode: 'edit', event })}
+            onSelectEvent={openEventDialog}
           />
           <WeekGrid
             days={weekDates}
             events={events}
             assignments={assignments}
             showAssignments={showAssignments}
-            onSelectEvent={(event) => setDialog({ mode: 'edit', event })}
+            onSelectEvent={openEventDialog}
             onSelectSlot={(slotStart) => setDialog({ mode: 'create', slotStart })}
           />
         </div>
@@ -113,7 +128,7 @@ export function Calendar(): React.JSX.Element {
           events={events}
           assignments={assignments}
           showAssignments={showAssignments}
-          onSelectEvent={(event) => setDialog({ mode: 'edit', event })}
+          onSelectEvent={openEventDialog}
         />
       </div>
 
@@ -122,9 +137,9 @@ export function Calendar(): React.JSX.Element {
           calendars={calendars}
           event={dialog.mode === 'edit' ? dialog.event : undefined}
           slotStart={dialog.mode === 'create' ? dialog.slotStart : undefined}
-          onClose={() => setDialog(null)}
+          onClose={closeEventDialog}
           onSaved={() => {
-            setDialog(null);
+            closeEventDialog();
             void reload();
           }}
         />
