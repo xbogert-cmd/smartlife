@@ -12,6 +12,8 @@ import { calendarDeleteEventTool } from './calendarDeleteEvent';
 import { browserListTabsTool } from './browserListTabs';
 import { browserReadPageTool } from './browserReadPage';
 import { canvasSubmitAssignmentTool } from './canvasSubmitAssignment';
+import { canvasFindAssignmentTool } from './canvasFindAssignment';
+import { canvasOpenAssignmentTool } from './canvasOpenAssignment';
 
 export const TOOLS: ToolDefinition[] = [
   getSettingsTool,
@@ -27,4 +29,6 @@ export const TOOLS: ToolDefinition[] = [
   browserListTabsTool,
   browserReadPageTool,
   canvasSubmitAssignmentTool,
+  canvasFindAssignmentTool,
+  canvasOpenAssignmentTool,
 ];

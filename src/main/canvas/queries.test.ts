@@ -18,6 +18,7 @@ import {
   getCourseDetail,
   searchMaterials,
   getPageBody,
+  findAssignments,
 } from './queries';
 import { courseContentKey } from './sync';
 
@@ -33,6 +34,12 @@ create table canvas_assignments (
   name text not null, description text, due_at text, points_possible real, html_url text,
   submission_types text, has_submitted integer not null default 0, submitted_at text,
   score real, grade text, workflow_state text,
+  synced_at text not null default (datetime('now'))
+);
+create table canvas_discussion_topics (
+  id integer primary key,
+  course_id integer not null references canvas_courses(id) on delete cascade,
+  assignment_id integer, title text, require_initial_post integer not null default 0,
   synced_at text not null default (datetime('now'))
 );
 create table canvas_announcements (
@@ -428,5 +435,92 @@ describe('getOverdueAssignments', () => {
   it('resolves the course name', () => {
     const rows = getOverdueAssignments(seed(), 14, NOW);
     expect(rows[0].courseName).toBe('Financial Accounting');
+  });
+});
+
+describe('findAssignments', () => {
+  function seed(): Database.Database {
+    const db = new Database(':memory:');
+    db.pragma('foreign_keys = ON');
+    db.exec(SCHEMA);
+    db.prepare("insert into canvas_courses (id, name) values (1, 'Arabic 101')").run();
+    db.prepare("insert into canvas_courses (id, name) values (2, 'Financial Accounting')").run();
+    const insert = db.prepare(
+      `insert into canvas_assignments (id, course_id, name, due_at, submission_types, has_submitted, html_url)
+       values (?, ?, ?, ?, ?, ?, ?)`
+    );
+    // Past due -- getUpcomingAssignments would never return this one.
+    insert.run(10, 1, 'Homework 2', '2026-08-10T04:00:00Z', '["online_upload"]', 0, 'https://canvas.example/a/10');
+    insert.run(11, 1, 'Homework 12', '2026-08-30T04:00:00Z', '["online_text_entry"]', 0, null);
+    // No due date at all -- also invisible to getUpcomingAssignments.
+    insert.run(12, 2, 'Homework 2 Review', null, '["external_tool"]', 0, null);
+    insert.run(13, 2, 'Final Exam', '2026-12-01T04:00:00Z', '["online_quiz"]', 0, null);
+    insert.run(14, 1, 'Discussion: Homework 2 debrief', '2026-09-01T04:00:00Z', '["discussion_topic"]', 0, null);
+    db.prepare(
+      "insert into canvas_discussion_topics (id, course_id, assignment_id, title) values (900, 1, 14, 'debrief')"
+    ).run();
+    return db;
+  }
+
+  it('finds a past-due assignment by name, which getUpcomingAssignments cannot', () => {
+    const hits = findAssignments(seed(), 'Homework 2');
+    expect(hits.map((h) => h.id)).toContain(10);
+  });
+
+  it('finds an assignment with no due date', () => {
+    const hits = findAssignments(seed(), 'Homework 2');
+    expect(hits.map((h) => h.id)).toContain(12);
+  });
+
+  it('matches case-insensitively', () => {
+    const hits = findAssignments(seed(), 'homework 2');
+    expect(hits.map((h) => h.id)).toContain(10);
+  });
+
+  it('does not match unrelated assignments', () => {
+    const hits = findAssignments(seed(), 'Homework 2');
+    expect(hits.map((h) => h.id)).not.toContain(13);
+  });
+
+  it('resolves the submission path so the caller knows what is possible', () => {
+    const hits = findAssignments(seed(), 'Homework 2');
+    const upload = hits.find((h) => h.id === 10);
+    expect(upload?.path.kind).toBe('file');
+    const lti = hits.find((h) => h.id === 12);
+    expect(lti?.path.kind).toBe('handoff');
+  });
+
+  it('resolves a discussion to its topic, not to an unresolved handoff', () => {
+    const hits = findAssignments(seed(), 'debrief');
+    expect(hits[0].path).toEqual({ kind: 'discussion', topicId: 900 });
+  });
+
+  it('returns exactly one row per assignment even with a discussion topic joined', () => {
+    const hits = findAssignments(seed(), 'debrief');
+    expect(hits).toHaveLength(1);
+  });
+
+  it('resolves the course name and html url', () => {
+    const hits = findAssignments(seed(), 'Homework 2');
+    const hit = hits.find((h) => h.id === 10);
+    expect(hit?.courseName).toBe('Arabic 101');
+    expect(hit?.htmlUrl).toBe('https://canvas.example/a/10');
+  });
+
+  it('returns nothing for an empty query rather than everything', () => {
+    expect(findAssignments(seed(), '   ')).toEqual([]);
+  });
+
+  it('treats % as a literal, not a wildcard', () => {
+    expect(findAssignments(seed(), '%')).toEqual([]);
+  });
+
+  it('respects the limit', () => {
+    expect(findAssignments(seed(), 'Homework', 2)).toHaveLength(2);
+  });
+
+  it('orders dated assignments before undated ones', () => {
+    const hits = findAssignments(seed(), 'Homework 2');
+    expect(hits[hits.length - 1].id).toBe(12);
   });
 });

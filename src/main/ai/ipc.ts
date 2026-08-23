@@ -7,8 +7,13 @@ import { getOrCreateConversationId, getMessages } from './conversation';
 import { resolveConfirmation } from './confirmations';
 import { handleSendMessage } from './chatController';
 import type { ViewContext } from './viewContext';
+import { setActiveNavigator } from './navigatorRegistry';
 
 export function registerAiIpcHandlers(db: Database.Database, getWindow: () => BrowserWindow | null): void {
+  // Published so canvas_open_assignment can move the app to /browser, the
+  // same channel the application menu uses.
+  setActiveNavigator((path) => getWindow()?.webContents.send('navigate', path));
+
   ipcMain.handle('ai:get-api-key-status', () => hasStoredApiKey(db));
   ipcMain.handle('ai:set-api-key', (_event, apiKey: string) => {
     setStoredApiKey(db, apiKey);

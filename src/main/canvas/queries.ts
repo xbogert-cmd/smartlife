@@ -411,6 +411,74 @@ export function searchMaterials(db: Database.Database, query: string, limit = 25
   return hits.slice(0, limit);
 }
 
+export interface AssignmentSearchHit {
+  id: number;
+  courseId: number;
+  courseName: string;
+  name: string;
+  dueAt: string | null;
+  pointsPossible: number | null;
+  hasSubmitted: boolean;
+  htmlUrl: string | null;
+  /** Resolved here so the caller knows whether a submission is even possible. */
+  path: SubmissionPath;
+}
+
+/**
+ * Find assignments by name, across every course and regardless of due date.
+ *
+ * getUpcomingAssignments only looks forward, and searchMaterials only covers
+ * files and pages, so before this existed there was no way to answer "what is
+ * Homework 2" for anything past due or undated -- which is most of a semester
+ * by the time you go looking for it.
+ */
+export function findAssignments(
+  db: Database.Database,
+  query: string,
+  limit = 15
+): AssignmentSearchHit[] {
+  const trimmed = query.trim();
+  if (trimmed.length === 0) return [];
+  const like = `%${trimmed.replace(/[%_\\]/g, (c) => `\\${c}`)}%`;
+
+  const rows = db
+    .prepare(
+      `select a.id, a.course_id, c.name as course_name, a.name, a.due_at,
+              a.points_possible, a.has_submitted, a.html_url, a.submission_types,
+              (select t.id from canvas_discussion_topics t
+                where t.assignment_id = a.id limit 1) as topic_id
+       from canvas_assignments a
+       join canvas_courses c on c.id = a.course_id
+       where a.name like ? escape '\\'
+       order by case when a.due_at is null then 1 else 0 end, a.due_at desc, a.id
+       limit ?`
+    )
+    .all(like, limit) as Array<{
+    id: number;
+    course_id: number;
+    course_name: string;
+    name: string;
+    due_at: string | null;
+    points_possible: number | null;
+    has_submitted: number;
+    html_url: string | null;
+    submission_types: string | null;
+    topic_id: number | null;
+  }>;
+
+  return rows.map((row) => ({
+    id: row.id,
+    courseId: row.course_id,
+    courseName: row.course_name,
+    name: row.name,
+    dueAt: row.due_at,
+    pointsPossible: row.points_possible,
+    hasSubmitted: row.has_submitted === 1,
+    htmlUrl: row.html_url,
+    path: classifySubmission(row.submission_types, row.topic_id),
+  }));
+}
+
 export function getPageBody(
   db: Database.Database,
   courseId: number,

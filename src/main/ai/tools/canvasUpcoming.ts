@@ -36,7 +36,10 @@ function format(rows: ReturnType<typeof getUpcomingAssignments>, days: number): 
   const lines = rows.map((row) => {
     const status = row.hasSubmitted ? ' — submitted' : '';
     const points = row.pointsPossible === null ? '' : ` (${row.pointsPossible} pts)`;
-    return `- ${row.name}${points} — ${row.courseName} — due ${row.dueAt}${status}`;
+    // The id is what canvas_submit_assignment and canvas_open_assignment take,
+    // and this tool's own schema promises it -- without it the model has to go
+    // scrape it off a web page.
+    return `- [assignment id ${row.id}] ${row.name}${points} — ${row.courseName} — due ${row.dueAt}${status}`;
   });
   return `Due in the next ${days} days:\n${lines.join('\n')}`;
 }

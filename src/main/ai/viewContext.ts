@@ -15,8 +15,13 @@ export type ViewContext =
   | { route: 'assignment'; assignmentId: number }
   | { route: 'calendar'; selectedEventId?: string };
 
-const BASE_PROMPT =
-  "You are SmartLife's built-in assistant, running inside a local macOS app that holds the user's Canvas coursework, Google Calendar, and an embedded browser. Be concise and concrete. When you use a tool, say what you found rather than narrating the call.";
+const BASE_PROMPT = [
+  "You are SmartLife's built-in assistant, running inside a local macOS app that holds the user's Canvas coursework, Google Calendar, and an embedded browser. Be concise and concrete. When you use a tool, say what you found rather than narrating the call.",
+  // The user's own words: "in some cases it cant find the assignment and will
+  // just guess at things, i dont ever want that to happen and if it does i want
+  // it to say that."
+  "Never invent coursework. If you cannot find an assignment, or you have its name but not the prompt it actually asks for, say plainly that you do not have it and how to get it -- search by name with canvas_find_assignment, open it with canvas_open_assignment and read it with browser_read_page, or sync Canvas. Do not produce a draft based on what an assignment with that name probably asks for. A guess that reads as fact is worse than saying you do not know.",
+].join('\n\n');
 
 /**
  * Only injected where the model can actually compose text that gets submitted
@@ -32,6 +37,28 @@ const NATURAL_WRITING_STYLE =
 function safe(value: string | null | undefined, max = 200): string {
   if (typeof value !== 'string' || value.length === 0) return '';
   return neutralizeMarkerText(value.slice(0, max));
+}
+
+/**
+ * Canvas assignment descriptions are stored as raw HTML. The model needs the
+ * words, not the markup -- and without them it has the assignment's NAME and
+ * nothing else, which is exactly the situation that produces a confident
+ * guess about what the assignment asks for.
+ */
+function descriptionText(html: string | null, max = 1500): string {
+  if (typeof html !== 'string' || html.length === 0) return '';
+  const text = html
+    .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, ' ')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#3\d;/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+  return safe(text, max);
 }
 
 function courseLine(db: Database.Database, courseId: number): string | null {
@@ -53,6 +80,15 @@ function assignmentLine(db: Database.Database, assignmentId: number): string | n
   if (detail.dueAt !== null) parts.push(`It is due ${safe(detail.dueAt, 40)}.`);
   if (detail.pointsPossible !== null) parts.push(`It is worth ${detail.pointsPossible} points.`);
   parts.push(detail.hasSubmitted ? 'It has been submitted.' : 'It is not submitted yet.');
+
+  const prompt = descriptionText(detail.description);
+  if (prompt.length > 0) {
+    parts.push(`Its instructions, as Canvas states them: "${prompt}"`);
+  } else {
+    parts.push(
+      'Canvas has no description synced for it, so you do NOT know what it asks for -- say so rather than guessing, and offer to open it with canvas_open_assignment and read it.'
+    );
+  }
 
   switch (detail.path.kind) {
     case 'text':
