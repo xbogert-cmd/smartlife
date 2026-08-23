@@ -4,7 +4,7 @@ import { setStoredApiKey, hasStoredApiKey } from './apiKey';
 import { getAiMode, setAiMode } from './mode';
 import type { AiMode } from './permissions';
 import { getOrCreateConversationId, getMessages } from './conversation';
-import { resolveConfirmation } from './confirmations';
+import { getPendingConfirmation, resolveConfirmation, setConfirmationBroadcaster } from './confirmations';
 import { handleSendMessage } from './chatController';
 import type { ViewContext } from './viewContext';
 import { setActiveNavigator } from './navigatorRegistry';
@@ -13,6 +13,7 @@ export function registerAiIpcHandlers(db: Database.Database, getWindow: () => Br
   // Published so canvas_open_assignment can move the app to /browser, the
   // same channel the application menu uses.
   setActiveNavigator((path) => getWindow()?.webContents.send('navigate', path));
+  setConfirmationBroadcaster((id) => getWindow()?.webContents.send('ai:confirm-resolved', id));
 
   ipcMain.handle('ai:get-api-key-status', () => hasStoredApiKey(db));
   ipcMain.handle('ai:set-api-key', (_event, apiKey: string) => {
@@ -30,6 +31,7 @@ export function registerAiIpcHandlers(db: Database.Database, getWindow: () => Br
   ipcMain.handle('ai:confirm-response', (_event, id: string, approved: boolean) => {
     resolveConfirmation(id, approved);
   });
+  ipcMain.handle('ai:get-pending-confirmation', () => getPendingConfirmation());
   ipcMain.handle('ai:get-history', () => {
     const conversationId = getOrCreateConversationId(db);
     return getMessages(db, conversationId).map((m) => ({ role: m.role, content: JSON.parse(m.content) }));

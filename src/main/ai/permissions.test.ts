@@ -32,7 +32,7 @@ describe('gate', () => {
     const requestConfirmation = vi.fn().mockResolvedValue(true);
     const approved = await gate('SAFE_WRITE', 'ask', 'set_theme', 'Set theme to dark', requestConfirmation);
     expect(approved).toBe(true);
-    expect(requestConfirmation).toHaveBeenCalledWith('set_theme', 'Set theme to dark');
+    expect(requestConfirmation).toHaveBeenCalledWith('set_theme', 'Set theme to dark', undefined);
   });
 
   it('propagates a denial from requestConfirmation', async () => {
@@ -53,7 +53,7 @@ describe('ALWAYS_CONFIRM', () => {
     const ask = vi.fn().mockResolvedValue(true);
     const approved = await gate('ALWAYS_CONFIRM', 'auto', 'canvas_submit_assignment', 'Submit it.', ask);
     expect(approved).toBe(true);
-    expect(ask).toHaveBeenCalledWith('canvas_submit_assignment', 'Submit it.');
+    expect(ask).toHaveBeenCalledWith('canvas_submit_assignment', 'Submit it.', undefined);
   });
 
   it('returns false when the user declines in auto mode', async () => {
@@ -64,5 +64,19 @@ describe('ALWAYS_CONFIRM', () => {
 
   it('leaves READ unpaused in auto so the tier change is not a blanket one', () => {
     expect(resolveExecutionMode('READ', 'auto')).toBe('auto');
+  });
+});
+
+describe('gate with a custom timeout', () => {
+  it('passes the timeout through to requestConfirmation', async () => {
+    const requestConfirmation = vi.fn().mockResolvedValue(true);
+    await gate('ALWAYS_CONFIRM', 'ask', 'browser_click', 'Click Submit', requestConfirmation, 24 * 60 * 60 * 1000);
+    expect(requestConfirmation).toHaveBeenCalledWith('browser_click', 'Click Submit', 24 * 60 * 60 * 1000);
+  });
+
+  it('omits the timeout argument when none is given, so requestConfirmation falls back to its own default', async () => {
+    const requestConfirmation = vi.fn().mockResolvedValue(true);
+    await gate('SAFE_WRITE', 'ask', 'set_theme', 'Set theme to dark', requestConfirmation);
+    expect(requestConfirmation).toHaveBeenCalledWith('set_theme', 'Set theme to dark', undefined);
   });
 });

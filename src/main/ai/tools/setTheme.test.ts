@@ -34,7 +34,7 @@ describe('set_theme tool', () => {
       { theme: 'dark' },
       { db, conversationId: 'c1', mode: 'assist', requestConfirmation }
     );
-    expect(requestConfirmation).toHaveBeenCalledWith('set_theme', 'Change theme to "dark"');
+    expect(requestConfirmation).toHaveBeenCalledWith('set_theme', 'Change theme to "dark"', undefined);
     expect(result).toBe('Theme set to "dark".');
   });
 
@@ -42,7 +42,7 @@ describe('set_theme tool', () => {
     const db = makeDb();
     const requestConfirmation = vi.fn().mockResolvedValue(true);
     const result = await setThemeTool.run({ theme: 'light' }, { db, conversationId: 'c1', mode: 'ask', requestConfirmation });
-    expect(requestConfirmation).toHaveBeenCalledWith('set_theme', 'Change theme to "light"');
+    expect(requestConfirmation).toHaveBeenCalledWith('set_theme', 'Change theme to "light"', undefined);
     expect(result).toBe('Theme set to "light".');
   });
 

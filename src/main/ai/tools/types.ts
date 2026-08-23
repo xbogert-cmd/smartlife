@@ -5,7 +5,7 @@ export interface ToolContext {
   db: Database.Database;
   conversationId: string;
   mode: AiMode;
-  requestConfirmation: (toolName: string, description: string) => Promise<boolean>;
+  requestConfirmation: (toolName: string, description: string, timeoutMs?: number) => Promise<boolean>;
 }
 
 export interface ToolSchema {

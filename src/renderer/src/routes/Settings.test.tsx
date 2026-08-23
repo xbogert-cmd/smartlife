@@ -28,6 +28,8 @@ beforeEach(() => {
       setApiKey: vi.fn().mockResolvedValue(undefined),
       getMode: vi.fn().mockResolvedValue('ask'),
       setMode: vi.fn().mockResolvedValue(undefined),
+      getPendingConfirmation: vi.fn().mockResolvedValue(null),
+      onConfirmResolved: vi.fn(() => () => {}),
     },
     canvas: {
       getStatus: vi.fn().mockResolvedValue({

@@ -22,8 +22,9 @@ export async function gate(
   mode: AiMode,
   toolName: string,
   description: string,
-  requestConfirmation: (toolName: string, description: string) => Promise<boolean>
+  requestConfirmation: (toolName: string, description: string, timeoutMs?: number) => Promise<boolean>,
+  timeoutMs?: number
 ): Promise<boolean> {
   if (resolveExecutionMode(tier, mode) === 'auto') return true;
-  return requestConfirmation(toolName, description);
+  return requestConfirmation(toolName, description, timeoutMs);
 }

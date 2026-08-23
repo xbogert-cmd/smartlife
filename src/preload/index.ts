@@ -142,6 +142,12 @@ const smartlife = {
     },
     respondToConfirm: (id: string, approved: boolean): Promise<void> => ipcRenderer.invoke('ai:confirm-response', id, approved),
     getHistory: (): Promise<AiMessage[]> => ipcRenderer.invoke('ai:get-history'),
+    getPendingConfirmation: (): Promise<ConfirmRequest | null> => ipcRenderer.invoke('ai:get-pending-confirmation'),
+    onConfirmResolved: (cb: (id: string) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, id: string) => cb(id);
+      ipcRenderer.on('ai:confirm-resolved', listener);
+      return () => ipcRenderer.removeListener('ai:confirm-resolved', listener);
+    },
   },
   canvas: {
     getStatus: (): Promise<CanvasSyncStatus> => ipcRenderer.invoke('canvas:get-status'),

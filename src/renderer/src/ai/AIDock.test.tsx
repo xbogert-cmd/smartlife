@@ -18,6 +18,8 @@ beforeEach(() => {
       onConfirmRequest: vi.fn().mockReturnValue(() => {}),
       sendMessage: vi.fn().mockResolvedValue(undefined),
       respondToConfirm: vi.fn().mockResolvedValue(undefined),
+      getPendingConfirmation: vi.fn().mockResolvedValue(null),
+      onConfirmResolved: vi.fn(() => () => {}),
     },
     browser: { suspend, resume },
   };

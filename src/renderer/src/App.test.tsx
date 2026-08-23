@@ -32,6 +32,8 @@ beforeEach(() => {
       onConfirmRequest: vi.fn(() => () => {}),
       respondToConfirm: vi.fn().mockResolvedValue(undefined),
       getHistory: vi.fn().mockResolvedValue([]),
+      getPendingConfirmation: vi.fn().mockResolvedValue(null),
+      onConfirmResolved: vi.fn(() => () => {}),
     },
     canvas: {
       getStatus: vi.fn().mockResolvedValue({
