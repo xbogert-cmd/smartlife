@@ -13,6 +13,7 @@ import { Calendar } from './routes/Calendar';
 import { Browser } from './routes/Browser';
 import { ComingSoon } from './routes/ComingSoon';
 import { AIDock } from './ai/AIDock';
+import { usePendingConfirmationBadge } from './ai/usePendingConfirmationBadge';
 import { CommandPalette } from './command-palette/CommandPalette';
 import { DownloadPrompt } from './browser/DownloadPrompt';
 import { useBrowserSuspend } from './browser/useBrowserSuspend';
@@ -26,6 +27,7 @@ function NavigationBridge() {
 function Shell() {
   const [aiOpen, setAiOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const hasPendingConfirmation = usePendingConfirmationBadge();
 
   // The Cmd+K palette is a true modal and would be painted underneath the
   // native browser view. The assistant is a dock -- it shrinks the viewport
@@ -50,7 +52,11 @@ function Shell() {
 
   return (
     <div className="flex h-screen">
-      <Sidebar aiOpen={aiOpen} onToggleAi={() => setAiOpen((open) => !open)} />
+      <Sidebar
+        aiOpen={aiOpen}
+        onToggleAi={() => setAiOpen((open) => !open)}
+        hasPendingConfirmation={hasPendingConfirmation}
+      />
       <main className="flex min-w-0 flex-1 flex-col overflow-auto">
         <NavigationBridge />
         <Routes>

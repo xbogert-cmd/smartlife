@@ -5,9 +5,10 @@ import { getSectionTheme } from './sectionThemes';
 interface SidebarProps {
   aiOpen: boolean;
   onToggleAi: () => void;
+  hasPendingConfirmation: boolean;
 }
 
-export function Sidebar({ aiOpen, onToggleAi }: SidebarProps) {
+export function Sidebar({ aiOpen, onToggleAi, hasPendingConfirmation }: SidebarProps) {
   return (
     <nav className="flex w-56 flex-shrink-0 flex-col gap-1 border-r p-3" style={{ borderColor: 'var(--color-border)' }}>
       {NAV_SECTIONS.map((section) => {
@@ -43,7 +44,7 @@ export function Sidebar({ aiOpen, onToggleAi }: SidebarProps) {
         type="button"
         onClick={onToggleAi}
         aria-pressed={aiOpen}
-        className="mt-auto rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors hover:opacity-80"
+        className="relative mt-auto rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors hover:opacity-80"
         style={{
           border: '1px solid var(--color-border)',
           color: 'var(--color-text-muted)',
@@ -52,6 +53,14 @@ export function Sidebar({ aiOpen, onToggleAi }: SidebarProps) {
       >
         {aiOpen ? 'Hide assistant' : 'Ask AI'}
         <span className="ml-2 opacity-60">⌘J</span>
+        {hasPendingConfirmation && !aiOpen && (
+          <span
+            data-testid="pending-confirmation-badge"
+            aria-label="Waiting for your approval"
+            className="absolute right-2 top-2 h-2 w-2 rounded-full"
+            style={{ backgroundColor: '#EF4444' }}
+          />
+        )}
       </button>
     </nav>
   );
