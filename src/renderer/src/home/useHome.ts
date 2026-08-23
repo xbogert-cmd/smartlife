@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { toDateKey } from '../calendar/layout';
 import type { CalendarEvent, CalendarStatus } from '../calendar/types';
 import type {
@@ -47,8 +47,15 @@ export function useHome(): HomeState {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  // canvas:sync-now and calendar:sync-now each broadcast their own
+  // *:sync-changed event before syncNow() resolves back to the renderer, so a
+  // single refresh() can have three load() calls racing in flight at once. A
+  // generation counter discards a load's results if a newer load already
+  // started, so a slow, stale load can never overwrite fresher state.
+  const generationRef = useRef(0);
 
   const load = useCallback(async (): Promise<void> => {
+    const generation = ++generationRef.current;
     // Resolved per load, not per mount: an app left open overnight should
     // roll over to the new day on its next sync, not keep showing yesterday.
     const today = toDateKey(new Date());
@@ -72,6 +79,10 @@ export function useHome(): HomeState {
       safeRead<CalendarEvent[]>(() => api.calendar.getEvents(today, today), []),
     ]);
 
+    // A newer load already started while this one was in flight — its
+    // result will win, so don't let this stale one overwrite it.
+    if (generation !== generationRef.current) return;
+
     setCanvasStatus(nextCanvasStatus);
     setCalendarStatus(nextCalendarStatus);
     setUpcoming(nextUpcoming);
@@ -91,8 +102,13 @@ export function useHome(): HomeState {
       void load().catch(() => {});
     });
     return () => {
-      stopCanvas();
-      stopCalendar();
+      // Isolated: stopCanvas throwing must not skip stopCalendar and leak
+      // its listener.
+      try {
+        stopCanvas();
+      } finally {
+        stopCalendar();
+      }
     };
   }, [load]);
 

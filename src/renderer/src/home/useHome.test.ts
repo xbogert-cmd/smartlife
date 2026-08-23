@@ -107,4 +107,48 @@ describe('useHome', () => {
     expect(canvas.onSyncChanged).toHaveBeenCalled();
     expect(calendar.onSyncChanged).toHaveBeenCalled();
   });
+
+  it('keeps the newer load result when an older, slower load resolves after it', async () => {
+    // canvas:sync-now / calendar:sync-now broadcast *:sync-changed before
+    // syncNow() resolves, so refresh() can have multiple load() calls racing.
+    // A slow first load must not clobber a faster, newer second load.
+    const { result } = renderHook(() => useHome());
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+
+    let resolveFirst: (v: unknown[]) => void = () => {};
+    const firstCall = new Promise<unknown[]>((resolve) => {
+      resolveFirst = resolve;
+    });
+    canvas.getUpcoming
+      .mockImplementationOnce(() => firstCall)
+      .mockImplementationOnce(async () => [{ id: 99, name: 'Newer assignment' }]);
+
+    // Kick off the first (slow) load, then start a second (fast) load
+    // before the first has resolved.
+    let firstLoad!: Promise<void>;
+    let secondLoad!: Promise<void>;
+    act(() => {
+      firstLoad = result.current.refresh();
+    });
+    await waitFor(() => expect(canvas.getUpcoming).toHaveBeenCalledTimes(1));
+    act(() => {
+      secondLoad = result.current.refresh();
+    });
+    await waitFor(() => expect(canvas.getUpcoming).toHaveBeenCalledTimes(2));
+
+    // Let the second (newer) load finish first, then resolve the stale first
+    // load afterward — the out-of-order resolution the finding describes.
+    await act(async () => {
+      await secondLoad;
+    });
+    expect(result.current.upcoming).toEqual([{ id: 99, name: 'Newer assignment' }]);
+
+    await act(async () => {
+      resolveFirst([{ id: 1, name: 'Essay' }]);
+      await firstLoad;
+    });
+
+    // The stale first load resolving late must not overwrite the newer data.
+    expect(result.current.upcoming).toEqual([{ id: 99, name: 'Newer assignment' }]);
+  });
 });
