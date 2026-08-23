@@ -15,6 +15,7 @@ import { browserListActionableElementsTool } from './browserListActionableElemen
 import { browserClickTool } from './browserClick';
 import { browserTypeTool } from './browserType';
 import { browserSelectTool } from './browserSelect';
+import { browserOpenTabTool } from './browserOpenTab';
 import { canvasSubmitAssignmentTool } from './canvasSubmitAssignment';
 import { canvasFindAssignmentTool } from './canvasFindAssignment';
 import { canvasOpenAssignmentTool } from './canvasOpenAssignment';
@@ -36,6 +37,7 @@ export const TOOLS: ToolDefinition[] = [
   browserClickTool,
   browserTypeTool,
   browserSelectTool,
+  browserOpenTabTool,
   canvasSubmitAssignmentTool,
   canvasFindAssignmentTool,
   canvasOpenAssignmentTool,

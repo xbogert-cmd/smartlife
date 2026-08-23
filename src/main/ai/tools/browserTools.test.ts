@@ -189,14 +189,21 @@ describe('browser_read_page', () => {
 });
 
 describe('registry', () => {
-  it('gates every action-capable browser tool behind ALWAYS_CONFIRM, and nothing else', async () => {
+  it('gates every action-capable browser tool behind the appropriate tier', async () => {
     const { TOOLS } = await import('./registry');
     const browserTools = TOOLS.filter((tool) => tool.name.startsWith('browser_'));
     const actionTools = ['browser_click', 'browser_select', 'browser_type'];
     const readTools = ['browser_list_actionable_elements', 'browser_list_tabs', 'browser_read_page'];
-    expect(browserTools.map((tool) => tool.name).sort()).toEqual([...actionTools, ...readTools].sort());
+    const safeWriteTools = ['browser_open_tab'];
+    expect(browserTools.map((tool) => tool.name).sort()).toEqual([...actionTools, ...readTools, ...safeWriteTools].sort());
     for (const tool of browserTools) {
-      expect(tool.tier).toBe(actionTools.includes(tool.name) ? 'ALWAYS_CONFIRM' : 'READ');
+      if (actionTools.includes(tool.name)) {
+        expect(tool.tier).toBe('ALWAYS_CONFIRM');
+      } else if (safeWriteTools.includes(tool.name)) {
+        expect(tool.tier).toBe('SAFE_WRITE');
+      } else {
+        expect(tool.tier).toBe('READ');
+      }
     }
   });
 });
