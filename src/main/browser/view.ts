@@ -8,6 +8,7 @@ import {
   buildElementListScript,
   buildExtractionScript,
   MAX_EXTRACT_CHARS,
+  neutralizeMarkerText,
   shapeElementDescriptor,
   shapeExtraction,
   type PageExtract,
@@ -364,7 +365,16 @@ export function createBrowserHost(options: BrowserHostOptions): BrowserHost {
     // here means the comparison failed and the action never ran.
     if (result.changed) return { ok: false, reason: 'changed' };
     if (kind === 'select' && result.optionNotFound) {
-      return { ok: false, reason: 'no-such-option', available: result.availableOptions ?? [] };
+      // Every option's text reaches the model only after the same
+      // untrusted-content treatment browser_read_page already gives page
+      // text -- this list came straight off the live DOM, unlike the
+      // registry's own options, which shapeElementDescriptor already
+      // neutralized when first recorded.
+      return {
+        ok: false,
+        reason: 'no-such-option',
+        available: (result.availableOptions ?? []).map((option) => neutralizeMarkerText(option)),
+      };
     }
 
     invalidateTab(stored.tabId);
