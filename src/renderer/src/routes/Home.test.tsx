@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { greeting, formatToday, Home } from './Home';
@@ -147,6 +147,43 @@ describe('Home route', () => {
     renderHome();
     await screen.findByText('Today');
     expect(screen.getByText(/connect google calendar/i)).toBeTruthy();
+  });
+
+  it('shows an assignment due earlier today in the Today agenda', async () => {
+    const dueEarlierToday = new Date();
+    dueEarlierToday.setHours(dueEarlierToday.getHours() - 3, 0, 0, 0);
+    canvas.getOverdue.mockResolvedValue([
+      {
+        id: 20,
+        courseId: 1,
+        courseName: 'Accounting',
+        name: 'Morning problem set',
+        dueAt: dueEarlierToday.toISOString(),
+        pointsPossible: 10,
+        hasSubmitted: false,
+        htmlUrl: null,
+      },
+    ]);
+    renderHome();
+    const todayHeading = await screen.findByText('Today');
+    const todaySection = todayHeading.closest('section');
+    if (!todaySection) throw new Error('Today section not found');
+    // The item is unsubmitted and past due, so it legitimately also shows
+    // up in Needs Attention -- scope the assertion to the Today section
+    // itself rather than asserting the text appears anywhere on the page.
+    expect(within(todaySection).getByText('Morning problem set')).toBeTruthy();
+  });
+
+  it('omits empty Canvas sections instead of stacking empty states', async () => {
+    canvas.getUpcoming.mockResolvedValue([]);
+    canvas.getOverdue.mockResolvedValue([]);
+    canvas.getGrades.mockResolvedValue([]);
+    canvas.getAnnouncements.mockResolvedValue([]);
+    renderHome();
+    await screen.findByText('Nothing scheduled today.');
+    expect(screen.queryByText('No courses synced yet.')).toBeNull();
+    expect(screen.queryByText('No recent announcements.')).toBeNull();
+    expect(screen.queryByText('Nothing due in the next week.')).toBeNull();
   });
 
   it('refreshes both sources from the header control', async () => {

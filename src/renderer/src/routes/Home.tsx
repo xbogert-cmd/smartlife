@@ -1,5 +1,5 @@
-import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import type { UpcomingAssignment } from '../school/types';
 import { useHome } from '../home/useHome';
 import { buildToday } from '../home/timeline';
 import { TodayPanel } from '../home/TodayPanel';
@@ -35,12 +35,17 @@ export function Home(): React.JSX.Element {
     home.canvasStatus.baseUrlConfigured;
   const calendarConnected = home.calendarStatus !== null && home.calendarStatus.connected;
 
-  const today = useMemo(
-    () => buildToday(home.events, home.upcoming, new Date()),
-    [home.events, home.upcoming]
-  );
-
   const now = new Date();
+
+  // Union of upcoming and overdue, deduped by id: Today's agenda must show
+  // an assignment due earlier today even though getUpcomingAssignments'
+  // `due_at >= now` filter already dropped it. Deliberately not deduped
+  // against Needs Attention -- an item due today that's also overdue is
+  // legitimately in both sections, they answer different questions.
+  const dueTodayById = new Map<number, UpcomingAssignment>();
+  for (const assignment of home.upcoming) dueTodayById.set(assignment.id, assignment);
+  for (const assignment of home.overdue) dueTodayById.set(assignment.id, assignment);
+  const today = buildToday(home.events, Array.from(dueTodayById.values()), now);
   const heading = `${greeting(now.getHours())}`;
 
   // Loading and fully-disconnected render the same prompt, so there is no
@@ -104,18 +109,18 @@ export function Home(): React.JSX.Element {
 
       {canvasConnected && (
         <>
-          <DueSoon items={home.upcoming} title="Next 7 days" emptyText="Nothing due in the next week." />
-          <GradeStrip courses={home.grades} />
-          <section className="flex flex-col gap-2">
-            <h2
-              className="text-sm font-semibold uppercase tracking-wide"
-              style={{ color: 'var(--color-text-muted)' }}
-            >
-              Announcements
-            </h2>
-            {home.announcements.length === 0 ? (
-              <p style={{ color: 'var(--color-text-muted)' }}>No recent announcements.</p>
-            ) : (
+          {home.upcoming.length > 0 && (
+            <DueSoon items={home.upcoming} title="Next 7 days" emptyText="Nothing due in the next week." />
+          )}
+          {home.grades.length > 0 && <GradeStrip courses={home.grades} />}
+          {home.announcements.length > 0 && (
+            <section className="flex flex-col gap-2">
+              <h2
+                className="text-sm font-semibold uppercase tracking-wide"
+                style={{ color: 'var(--color-text-muted)' }}
+              >
+                Announcements
+              </h2>
               <ul className="flex flex-col gap-1.5">
                 {home.announcements.map((announcement) => (
                   <li
@@ -132,8 +137,8 @@ export function Home(): React.JSX.Element {
                   </li>
                 ))}
               </ul>
-            )}
-          </section>
+            </section>
+          )}
         </>
       )}
 
