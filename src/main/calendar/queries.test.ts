@@ -165,6 +165,35 @@ describe('getEventsInRange', () => {
 
     expect(getEventsInRange(db, '2026-08-17', '2026-08-23')).toHaveLength(0);
   });
+
+  it('finds a local evening event that plain SQLite date() would bucket into tomorrow', async () => {
+    // 9pm Eastern on the 21st is 2026-08-22T01:00:00Z -- date(start_at) with
+    // no modifier normalizes to UTC and would misfile this under the 22nd.
+    // A same-day query for the 21st must still find it.
+    const { getEventsInRange } = await import('./queries');
+    const db = makeDb();
+    addEvent(db, {
+      id: 'evening',
+      start_at: '2026-08-21T21:00:00-04:00',
+      end_at: '2026-08-21T22:00:00-04:00',
+    });
+
+    const rows = getEventsInRange(db, '2026-08-21', '2026-08-21');
+    expect(rows.map((r) => r.id)).toEqual(['evening']);
+  });
+
+  it('does not shift an all-day event back a day under the local-time comparison', async () => {
+    // is_all_day rows store a bare local date with no timezone. Applying
+    // 'localtime' to them (treating the bare date as UTC midnight, then
+    // converting to the OS zone) would shift them a day earlier for any
+    // user east of UTC-0 -- exactly what the is_all_day branch must avoid.
+    const { getEventsInRange } = await import('./queries');
+    const db = makeDb();
+    addEvent(db, { id: 'allday', start_at: '2026-08-21', end_at: '2026-08-22', is_all_day: 1 });
+
+    const rows = getEventsInRange(db, '2026-08-21', '2026-08-21');
+    expect(rows.map((r) => r.id)).toEqual(['allday']);
+  });
 });
 
 describe('getEvent', () => {
@@ -210,5 +239,20 @@ describe('getAssignmentDueDates', () => {
     const { getAssignmentDueDates } = await import('./queries');
     // Calendar must be fully usable without Canvas; empty tables, not an error.
     expect(getAssignmentDueDates(makeDb(), '2026-08-17', '2026-08-23')).toEqual([]);
+  });
+
+  it('finds an assignment due late Eastern evening that UTC due_at would bucket into tomorrow', async () => {
+    // Canvas due_at is always UTC. 9pm Eastern on the 21st is
+    // 2026-08-22T01:00:00Z -- plain date(due_at) normalizes to UTC and would
+    // misfile this under the 22nd, outside a same-day query for the 21st.
+    const { getAssignmentDueDates } = await import('./queries');
+    const db = makeDb();
+    db.prepare("insert into canvas_courses (id, name) values (1, 'BIO 101')").run();
+    db.prepare(
+      "insert into canvas_assignments (id, course_id, name, due_at) values (10, 1, 'Late Lab', '2026-08-22T01:00:00Z')"
+    ).run();
+
+    const rows = getAssignmentDueDates(db, '2026-08-21', '2026-08-21');
+    expect(rows.map((r) => r.name)).toEqual(['Late Lab']);
   });
 });

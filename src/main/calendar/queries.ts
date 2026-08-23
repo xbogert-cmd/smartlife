@@ -117,13 +117,26 @@ export function setCalendarEnabled(
 }
 
 /**
- * Events overlapping [fromDate, toDate], both date-only strings.
+ * Events overlapping [fromDate, toDate], both LOCAL date-only strings.
  *
- * `date()` normalizes both stored formats -- date('2026-08-21') and
- * date('2026-08-21T14:00:00Z') are both '2026-08-21' -- so one comparison
- * covers timed and all-day events with no branching. Testing overlap rather
- * than start-within-range is what keeps a multi-day event visible during the
- * days it spans.
+ * All-day events store a bare `YYYY-MM-DD` with no timezone (see
+ * `normalizeEvent` in sync.ts) -- that string already IS the local day, so
+ * it's compared as-is. Timed events store an RFC3339 instant, which must be
+ * converted to the OS's local date before comparing against a local date
+ * key: plain `date(start_at)` normalizes to UTC, which silently reclassifies
+ * any evening event (in any timezone west of UTC) into tomorrow. SQLite's
+ * `'localtime'` modifier respects the timestamp's own embedded offset and
+ * then converts to the OS timezone, which is what a local date key needs.
+ * Verified directly against this build:
+ *   date('2026-08-22T20:00:00-04:00')             -> '2026-08-23'  (wrong)
+ *   date('2026-08-22T20:00:00-04:00', 'localtime') -> '2026-08-22'  (right)
+ *
+ * Applying 'localtime' to an all-day row would be wrong the other direction
+ * -- it would treat the bare date as UTC midnight and could shift it back a
+ * day for anyone west of UTC -- hence the branch on is_all_day.
+ *
+ * Testing overlap rather than start-within-range is what keeps a multi-day
+ * event visible during the days it spans.
  */
 export function getEventsInRange(
   db: Database.Database,
@@ -134,8 +147,8 @@ export function getEventsInRange(
     .prepare(
       `select ${EVENT_COLUMNS} from google_events
        where calendar_id in (select id from google_calendars where enabled = 1)
-         and date(start_at) <= ?
-         and date(end_at) >= ?
+         and (case when is_all_day = 1 then start_at else date(start_at, 'localtime') end) <= ?
+         and (case when is_all_day = 1 then end_at else date(end_at, 'localtime') end) >= ?
        order by start_at, id`
     )
     .all(toDate, fromDate) as RawEventRow[];
@@ -168,7 +181,8 @@ export function getAssignmentDueDates(
       `select a.id, a.course_id, c.name as course_name, a.name, a.due_at
        from canvas_assignments a
        join canvas_courses c on c.id = a.course_id
-       where a.due_at is not null and date(a.due_at) >= ? and date(a.due_at) <= ?
+       where a.due_at is not null
+         and date(a.due_at, 'localtime') >= ? and date(a.due_at, 'localtime') <= ?
        order by a.due_at, a.id`
     )
     .all(fromDate, toDate) as Array<{

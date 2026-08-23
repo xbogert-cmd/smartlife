@@ -54,21 +54,18 @@ describe('useHome', () => {
     expect(result.current.events).toHaveLength(1);
   });
 
-  it('requests a padded ±1 day range, not just today, so getEventsInRange’s UTC date() truncation cannot drop a local evening event', async () => {
-    // getEventsInRange filters with SQLite's date(), which normalizes to
-    // UTC: an 8pm-Eastern event lands on tomorrow's UTC date and a
-    // same-day request never fetches it. Requesting today ± 1 day and
-    // letting buildToday's local-date filter do the exact selection is
-    // the fix -- so the requested range must span three distinct day
-    // keys with today strictly in the middle.
+  it('requests the local today, not a UTC one', async () => {
+    // getEventsInRange resolves timed rows with SQLite's 'localtime'
+    // modifier now, so a same-day request is correct on its own -- no
+    // padding needed. toDateKey('2026-08-22T20:00:00-04:00') and a naive
+    // toISOString().slice(0, 10) would disagree on this exact case, which
+    // is what pins this test to the local date, not the UTC one.
     const { result } = renderHook(() => useHome());
     await waitFor(() => expect(result.current.loaded).toBe(true));
     const [from, to] = calendar.getEvents.mock.calls[0];
     const todayKey = toDateKey(new Date());
-    expect(from).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    expect(to).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    expect(from < todayKey).toBe(true);
-    expect(todayKey < to).toBe(true);
+    expect(from).toBe(todayKey);
+    expect(to).toBe(todayKey);
   });
 
   it('keeps an event returned at 23:30 local time in the loaded events', async () => {
