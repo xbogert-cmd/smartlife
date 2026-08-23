@@ -58,7 +58,17 @@ export function useHome(): HomeState {
     const generation = ++generationRef.current;
     // Resolved per load, not per mount: an app left open overnight should
     // roll over to the new day on its next sync, not keep showing yesterday.
-    const today = toDateKey(new Date());
+    //
+    // The range is padded ±1 day, not just today: getEventsInRange filters
+    // with SQLite's date(), which normalizes to UTC, so a local evening
+    // event (e.g. 8pm Eastern) falls on tomorrow's UTC date and would be
+    // missed by a same-day request. buildToday re-filters events by local
+    // date key, so the padding is discarded there and never reaches the UI.
+    // Offsets go through the Date(y, m, d + n) constructor, not raw
+    // millisecond arithmetic, so DST transitions can't shift the boundary.
+    const now = new Date();
+    const dayKey = (offsetDays: number): string =>
+      toDateKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() + offsetDays));
     const api = window.smartlife;
 
     const [
@@ -76,7 +86,7 @@ export function useHome(): HomeState {
       safeRead<UpcomingAssignment[]>(() => api.canvas.getOverdue(OVERDUE_DAYS), []),
       safeRead<CourseGrade[]>(() => api.canvas.getGrades(), []),
       safeRead<AnnouncementRow[]>(() => api.canvas.getAnnouncements(ANNOUNCEMENT_LIMIT), []),
-      safeRead<CalendarEvent[]>(() => api.calendar.getEvents(today, today), []),
+      safeRead<CalendarEvent[]>(() => api.calendar.getEvents(dayKey(-1), dayKey(1)), []),
     ]);
 
     // A newer load already started while this one was in flight — its

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderHook, waitFor, act } from '@testing-library/react';
 import { useHome } from './useHome';
+import { toDateKey } from '../calendar/layout';
 
 const canvas = {
   getStatus: vi.fn(),
@@ -53,12 +54,31 @@ describe('useHome', () => {
     expect(result.current.events).toHaveLength(1);
   });
 
-  it("asks the calendar for today's date on both ends of the range", async () => {
+  it('requests a padded ±1 day range, not just today, so getEventsInRange’s UTC date() truncation cannot drop a local evening event', async () => {
+    // getEventsInRange filters with SQLite's date(), which normalizes to
+    // UTC: an 8pm-Eastern event lands on tomorrow's UTC date and a
+    // same-day request never fetches it. Requesting today ± 1 day and
+    // letting buildToday's local-date filter do the exact selection is
+    // the fix -- so the requested range must span three distinct day
+    // keys with today strictly in the middle.
     const { result } = renderHook(() => useHome());
     await waitFor(() => expect(result.current.loaded).toBe(true));
     const [from, to] = calendar.getEvents.mock.calls[0];
-    expect(from).toBe(to);
+    const todayKey = toDateKey(new Date());
     expect(from).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(to).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(from < todayKey).toBe(true);
+    expect(todayKey < to).toBe(true);
+  });
+
+  it('keeps an event returned at 23:30 local time in the loaded events', async () => {
+    const lateNight = new Date();
+    lateNight.setHours(23, 30, 0, 0);
+    const eveningEvent = { id: 'e-late', summary: 'Evening study group', startAt: lateNight.toISOString() };
+    calendar.getEvents.mockResolvedValue([eveningEvent]);
+    const { result } = renderHook(() => useHome());
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+    expect(result.current.events).toContainEqual(eveningEvent);
   });
 
   it('still loads Canvas data when the calendar read rejects', async () => {

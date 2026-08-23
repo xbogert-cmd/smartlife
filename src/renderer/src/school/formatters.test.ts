@@ -39,7 +39,19 @@ describe('formatDue', () => {
     expect(formatDue('2026-08-21T12:00:00Z', NOW)).toBe('due in 3 days');
   });
 
-  it('marks a past due date as overdue', () => {
-    expect(formatDue('2026-08-17T12:00:00Z', NOW)).toBe('overdue');
+  it('flags something overdue by minutes', () => {
+    expect(formatDue('2026-08-18T11:55:00Z', NOW)).toBe('5 min overdue');
+  });
+
+  it('flags something overdue by hours', () => {
+    expect(formatDue('2026-08-18T09:00:00Z', NOW)).toBe('3 hr overdue');
+  });
+
+  it('uses a singular day when overdue by exactly one day', () => {
+    expect(formatDue('2026-08-17T12:00:00Z', NOW)).toBe('1 day overdue');
+  });
+
+  it('counts multiple days overdue', () => {
+    expect(formatDue('2026-08-15T12:00:00Z', NOW)).toBe('3 days overdue');
   });
 });

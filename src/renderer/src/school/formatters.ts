@@ -16,7 +16,13 @@ export function formatRelative(iso: string | null, now: Date = new Date()): stri
 export function formatDue(iso: string, now: Date = new Date()): string {
   const remaining = Date.parse(iso) - now.getTime();
   if (Number.isNaN(remaining)) return '';
-  if (remaining < 0) return 'overdue';
+  if (remaining < 0) {
+    const elapsed = -remaining;
+    if (elapsed < HOUR) return `${Math.max(1, Math.floor(elapsed / MINUTE))} min overdue`;
+    if (elapsed < DAY) return `${Math.floor(elapsed / HOUR)} hr overdue`;
+    const overdueDays = Math.floor(elapsed / DAY);
+    return overdueDays === 1 ? '1 day overdue' : `${overdueDays} days overdue`;
+  }
   if (remaining < HOUR) return `due in ${Math.max(1, Math.floor(remaining / MINUTE))} min`;
   if (remaining < DAY) return `due in ${Math.floor(remaining / HOUR)} hr`;
   const days = Math.floor(remaining / DAY);

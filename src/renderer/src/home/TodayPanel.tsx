@@ -66,7 +66,13 @@ export function TodayPanel({ items }: { items: TodayItem[] }): React.JSX.Element
       ) : (
         <ul className="flex flex-col gap-1.5">
           {items.map((item) => (
-            <li key={item.kind === 'event' ? `e${item.event.id}` : `a${item.assignment.id}`}>
+            <li
+              key={
+                item.kind === 'event'
+                  ? `e${item.event.calendarId}:${item.event.id}`
+                  : `a${item.assignment.id}`
+              }
+            >
               <Row item={item} />
             </li>
           ))}

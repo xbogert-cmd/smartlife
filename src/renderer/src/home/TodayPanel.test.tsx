@@ -43,6 +43,24 @@ function dueItem(name: string, hasSubmitted = false): TodayItem {
   };
 }
 
+function dueItemAt(hour: number, minute: number): TodayItem {
+  const at = new Date(2026, 7, 22, hour, minute).getTime();
+  return {
+    kind: 'due',
+    at,
+    assignment: {
+      id: 42,
+      courseId: 1,
+      courseName: 'Financial Accounting',
+      name: 'Timed lab',
+      dueAt: new Date(at).toISOString(),
+      pointsPossible: 20,
+      hasSubmitted: false,
+      htmlUrl: null,
+    },
+  };
+}
+
 function renderPanel(items: TodayItem[]) {
   return render(
     <MemoryRouter>
@@ -82,6 +100,18 @@ describe('TodayPanel', () => {
   it('says the day is clear when there is nothing on it', () => {
     renderPanel([]);
     expect(screen.getByText(/nothing scheduled/i)).toBeTruthy();
+  });
+
+  it('renders 12:15 AM for a due item just after midnight', () => {
+    // hours % 12 === 0 at midnight -- the branch timeLabel uses to avoid
+    // printing "0:15 AM" -- had no coverage at all before this.
+    renderPanel([dueItemAt(0, 15)]);
+    expect(screen.getByText('12:15 AM')).toBeTruthy();
+  });
+
+  it('renders 12:05 PM for a due item just after noon', () => {
+    renderPanel([dueItemAt(12, 5)]);
+    expect(screen.getByText('12:05 PM')).toBeTruthy();
   });
 
   it('renders an untitled event without printing null', () => {

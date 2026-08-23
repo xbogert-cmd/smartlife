@@ -75,7 +75,14 @@ export function Home(): React.JSX.Element {
     );
   }
 
-  const lastSynced = home.canvasStatus?.lastSyncedAt ?? home.calendarStatus?.lastSyncedAt ?? null;
+  // The OLDER of the two timestamps, not `??`'s first-available one: a
+  // healthy Canvas sync must not mask a Google sync that's been failing for
+  // days -- this line's job is to report how stale the dashboard actually is.
+  const stamps = [home.canvasStatus?.lastSyncedAt, home.calendarStatus?.lastSyncedAt].filter(
+    (s): s is string => typeof s === 'string'
+  );
+  const lastSynced =
+    stamps.length === 0 ? null : stamps.reduce((a, b) => (Date.parse(a) <= Date.parse(b) ? a : b));
 
   return (
     <div className="flex flex-col gap-6 p-8">

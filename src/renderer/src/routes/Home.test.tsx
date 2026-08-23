@@ -186,6 +186,30 @@ describe('Home route', () => {
     expect(screen.queryByText('Nothing due in the next week.')).toBeNull();
   });
 
+  it('shows the age of the older sync timestamp when the two sources have diverged', async () => {
+    // Canvas synced seconds ago while Google has been failing for days --
+    // `??` would report the fresh Canvas timestamp and hide a half-stale
+    // dashboard. The header's job is to report the true staleness.
+    canvas.getStatus.mockResolvedValue({
+      tokenConfigured: true,
+      baseUrlConfigured: true,
+      lastSyncedAt: new Date().toISOString(),
+      tokenInvalid: false,
+      tokenAgeDays: 1,
+      tokenExpiringSoon: false,
+    });
+    calendar.getStatus.mockResolvedValue({
+      connected: true,
+      clientConfigured: true,
+      accountEmail: 'me@example.com',
+      lastSyncedAt: new Date(Date.now() - 3 * 86_400_000).toISOString(),
+      tokenInvalid: false,
+    });
+    renderHome();
+    await screen.findByText('Today');
+    expect(await screen.findByText(/synced 3 days ago/i)).toBeTruthy();
+  });
+
   it('refreshes both sources from the header control', async () => {
     renderHome();
     const button = await screen.findByRole('button', { name: /refresh/i });

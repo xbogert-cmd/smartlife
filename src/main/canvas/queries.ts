@@ -109,6 +109,7 @@ export function getOverdueAssignments(
        join canvas_courses c on c.id = a.course_id
        where a.due_at is not null and a.due_at >= ? and a.due_at < ?
          and a.has_submitted = 0
+         and (a.workflow_state is null or a.workflow_state <> 'graded')
        order by a.due_at desc, a.id`
     )
     .all(from, to) as Array<{

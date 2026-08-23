@@ -385,6 +385,21 @@ describe('getOverdueAssignments', () => {
     expect(rows.map((row) => row.id)).toContain(13);
   });
 
+  it('excludes an external_tool assignment graded via LTI passback even without a submission timestamp', () => {
+    // Canvas's grade-passback from an LTI tool (Connect, MyLab, Cengage)
+    // routinely sets workflow_state to 'graded' without ever setting
+    // submitted_at, so has_submitted stays 0 for work the student already
+    // finished. Row 13 (still ungraded) above proves the filter isn't a
+    // blanket exclusion of external_tool rows -- only graded ones drop out.
+    const db = seed();
+    db.prepare(
+      `insert into canvas_assignments (id, course_id, name, due_at, submission_types, has_submitted, workflow_state, score)
+       values (18, 1, 'Graded LTI lab', '2026-08-20T04:00:00Z', '["external_tool"]', 0, 'graded', 18)`
+    ).run();
+    const rows = getOverdueAssignments(db, 14, NOW);
+    expect(rows.map((row) => row.id)).not.toContain(18);
+  });
+
   it('excludes assignments that are not due yet', () => {
     const rows = getOverdueAssignments(seed(), 14, NOW);
     expect(rows.map((row) => row.id)).not.toContain(14);
