@@ -11,6 +11,7 @@ vi.mock('electron', () => ({
 
 import {
   getUpcomingAssignments,
+  getOverdueAssignments,
   getCourseGrades,
   getRecentAnnouncements,
   getSyncStatus,
@@ -330,5 +331,87 @@ describe('getPageBody', () => {
     seedCourseContent(db);
 
     expect(getPageBody(db, 101, 'missing')).toBeNull();
+  });
+});
+
+describe('getOverdueAssignments', () => {
+  const NOW = new Date('2026-08-22T12:00:00.000Z');
+
+  function seed(): Database.Database {
+    const db = new Database(':memory:');
+    db.pragma('foreign_keys = ON');
+    db.exec(SCHEMA);
+    db.prepare("insert into canvas_courses (id, name) values (1, 'Financial Accounting')").run();
+    const insert = db.prepare(
+      `insert into canvas_assignments (id, course_id, name, due_at, submission_types, has_submitted)
+       values (?, 1, ?, ?, ?, ?)`
+    );
+    // Two days late, unsubmitted, real upload -> the case this exists for.
+    insert.run(10, 'Missed upload', '2026-08-20T04:00:00Z', '["online_upload"]', 0);
+    // Two days late but already submitted -> not overdue.
+    insert.run(11, 'Turned in late', '2026-08-20T04:00:00Z', '["online_upload"]', 1);
+    // Two days late, nothing to submit -> noise, must be excluded.
+    insert.run(12, 'Attendance 8/20', '2026-08-20T04:00:00Z', '["none"]', 0);
+    // Two days late, LTI tool -> still the user's problem, must be kept.
+    insert.run(13, 'Connect homework', '2026-08-20T04:00:00Z', '["external_tool"]', 0);
+    // Due in the future -> not overdue.
+    insert.run(14, 'Next week', '2026-08-29T04:00:00Z', '["online_upload"]', 0);
+    // 40 days late -> outside a 14-day window.
+    insert.run(15, 'Ancient history', '2026-07-13T04:00:00Z', '["online_upload"]', 0);
+    // No due date at all -> never overdue.
+    insert.run(16, 'Undated', null, '["online_upload"]', 0);
+    return db;
+  }
+
+  it('returns unsubmitted assignments whose due date has passed', () => {
+    const rows = getOverdueAssignments(seed(), 14, NOW);
+    expect(rows.map((row) => row.id)).toContain(10);
+  });
+
+  it('excludes assignments that were already submitted', () => {
+    const rows = getOverdueAssignments(seed(), 14, NOW);
+    expect(rows.map((row) => row.id)).not.toContain(11);
+  });
+
+  it('excludes assignments with nothing to submit', () => {
+    // ~24% of a real semester is submission_types ["none"] -- attendance and
+    // gradebook placeholders. Without this filter the section is all noise.
+    const rows = getOverdueAssignments(seed(), 14, NOW);
+    expect(rows.map((row) => row.id)).not.toContain(12);
+  });
+
+  it('keeps external_tool assignments, which the user still has to go do', () => {
+    const rows = getOverdueAssignments(seed(), 14, NOW);
+    expect(rows.map((row) => row.id)).toContain(13);
+  });
+
+  it('excludes assignments that are not due yet', () => {
+    const rows = getOverdueAssignments(seed(), 14, NOW);
+    expect(rows.map((row) => row.id)).not.toContain(14);
+  });
+
+  it('excludes assignments older than the window', () => {
+    const rows = getOverdueAssignments(seed(), 14, NOW);
+    expect(rows.map((row) => row.id)).not.toContain(15);
+  });
+
+  it('excludes assignments with no due date', () => {
+    const rows = getOverdueAssignments(seed(), 14, NOW);
+    expect(rows.map((row) => row.id)).not.toContain(16);
+  });
+
+  it('orders the most recently missed first', () => {
+    const db = seed();
+    db.prepare(
+      `insert into canvas_assignments (id, course_id, name, due_at, submission_types, has_submitted)
+       values (17, 1, 'Missed yesterday', '2026-08-21T04:00:00Z', '["online_upload"]', 0)`
+    ).run();
+    const rows = getOverdueAssignments(db, 14, NOW);
+    expect(rows[0].id).toBe(17);
+  });
+
+  it('resolves the course name', () => {
+    const rows = getOverdueAssignments(seed(), 14, NOW);
+    expect(rows[0].courseName).toBe('Financial Accounting');
   });
 });

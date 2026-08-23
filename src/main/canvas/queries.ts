@@ -82,6 +82,63 @@ export function getUpcomingAssignments(
   }));
 }
 
+/**
+ * Assignments whose due date has passed without a submission.
+ *
+ * getUpcomingAssignments only looks forward (`due_at >= now`), so a missed
+ * deadline disappears from every surface in the app. This is the query that
+ * puts it back.
+ *
+ * Rows with nothing to submit are dropped: roughly a quarter of a real
+ * semester is submission_types ["none"] -- attendance rows, participation,
+ * gradebook placeholders -- and a "needs attention" list full of them is
+ * noise the user learns to ignore.
+ */
+export function getOverdueAssignments(
+  db: Database.Database,
+  days: number,
+  now: Date = new Date()
+): UpcomingAssignment[] {
+  const from = new Date(now.getTime() - days * MS_PER_DAY).toISOString();
+  const to = now.toISOString();
+  const rows = db
+    .prepare(
+      `select a.id, a.course_id, c.name as course_name, a.name, a.due_at,
+              a.points_possible, a.has_submitted, a.html_url, a.submission_types
+       from canvas_assignments a
+       join canvas_courses c on c.id = a.course_id
+       where a.due_at is not null and a.due_at >= ? and a.due_at < ?
+         and a.has_submitted = 0
+       order by a.due_at desc, a.id`
+    )
+    .all(from, to) as Array<{
+    id: number;
+    course_id: number;
+    course_name: string;
+    name: string;
+    due_at: string;
+    points_possible: number | null;
+    has_submitted: number;
+    html_url: string | null;
+    submission_types: string | null;
+  }>;
+
+  return rows
+    // The topic id is irrelevant here: every path except 'none' means there is
+    // something to hand in, and that is the only question being asked.
+    .filter((row) => classifySubmission(row.submission_types, null).kind !== 'none')
+    .map((row) => ({
+      id: row.id,
+      courseId: row.course_id,
+      courseName: row.course_name,
+      name: row.name,
+      dueAt: row.due_at,
+      pointsPossible: row.points_possible,
+      hasSubmitted: row.has_submitted === 1,
+      htmlUrl: row.html_url,
+    }));
+}
+
 export function getCourseGrades(db: Database.Database): CourseGrade[] {
   const rows = db
     .prepare(
