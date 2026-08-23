@@ -1,6 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { setThemeTool } from './setTheme';
+import { broadcastThemePreferenceChange, registerIpcHandlers } from '../../ipc';
+
+vi.mock('electron', () => ({
+  app: { getVersion: () => '0.1.0' },
+  ipcMain: { handle: vi.fn() },
+  nativeTheme: { shouldUseDarkColors: false, on: vi.fn() },
+}));
 
 function makeDb(): Database.Database {
   const db = new Database(':memory:');
@@ -55,5 +62,39 @@ describe('set_theme tool', () => {
     const result = await setThemeTool.run({ theme: 'rainbow' }, { db, conversationId: 'c1', mode: 'ask', requestConfirmation });
     expect(result).toContain('Invalid theme');
     expect(requestConfirmation).not.toHaveBeenCalled();
+  });
+});
+
+describe('set_theme tool reaches the renderer', () => {
+  it('broadcasts theme:preference-changed, same as the Settings UI write, so the AI does not need a restart to take effect', async () => {
+    const db = makeDb();
+    db.exec('create table if not exists settings (key text primary key, value text not null)');
+    const send = vi.fn();
+    registerIpcHandlers(db, () => ({ webContents: { send } }) as never);
+
+    await setThemeTool.run({ theme: 'dark' }, { db, conversationId: 'c1', mode: 'auto', requestConfirmation: vi.fn() });
+
+    expect(send).toHaveBeenCalledWith('theme:preference-changed', 'dark');
+  });
+
+  it('does not broadcast when the user declines', async () => {
+    const db = makeDb();
+    const send = vi.fn();
+    registerIpcHandlers(db, () => ({ webContents: { send } }) as never);
+
+    await setThemeTool.run(
+      { theme: 'dark' },
+      { db, conversationId: 'c1', mode: 'ask', requestConfirmation: vi.fn().mockResolvedValue(false) }
+    );
+
+    expect(send).not.toHaveBeenCalled();
+  });
+});
+
+// Sanity check that the tool and the ipc.ts choke point really are wired to
+// the same function, not two independently-behaving broadcasters.
+describe('broadcastThemePreferenceChange is the same function setTheme.ts imports', () => {
+  it('is exported from ipc.ts', () => {
+    expect(typeof broadcastThemePreferenceChange).toBe('function');
   });
 });

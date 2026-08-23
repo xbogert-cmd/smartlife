@@ -1,4 +1,4 @@
-import { setThemePreference } from '../../ipc';
+import { setThemePreference, broadcastThemePreferenceChange } from '../../ipc';
 import { gate } from '../permissions';
 import type { ToolDefinition } from './types';
 
@@ -29,6 +29,7 @@ export const setThemeTool: ToolDefinition = {
     const approved = await gate('SAFE_WRITE', ctx.mode, 'set_theme', `Change theme to "${theme}"`, ctx.requestConfirmation);
     if (!approved) return 'User declined this action.';
     setThemePreference(ctx.db, theme as Theme);
+    broadcastThemePreferenceChange(theme as Theme);
     return `Theme set to "${theme}".`;
   },
 };

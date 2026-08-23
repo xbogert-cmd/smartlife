@@ -297,6 +297,20 @@ function upsertModules(
         ...keep
       );
     }
+
+    // A page's row is keyed by (course_id, url), not by module item id, and
+    // upsertPageStub above only ever adds rows. Without this, a Page module
+    // item that Canvas deletes leaves its canvas_pages row behind forever --
+    // still returned by canvas_search_materials and still openable to a 404,
+    // since nothing else in this file deletes from canvas_pages.
+    db.prepare(
+      `delete from canvas_pages
+       where course_id = ?
+         and url not in (
+           select page_url from canvas_module_items
+           where course_id = ? and type = 'Page' and page_url is not null
+         )`
+    ).run(courseId, courseId);
   })();
 }
 

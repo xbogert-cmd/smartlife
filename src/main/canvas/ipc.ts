@@ -9,7 +9,7 @@ import {
   setCanvasToken,
 } from './token';
 import { getSelf } from './api';
-import { fetchPageBody, syncCourseContent } from './sync';
+import { clearSyncState, fetchPageBody, syncCourseContent, SYNC_KEY_TOKEN_INVALID } from './sync';
 import { openCanvasFile } from './files';
 import {
   getAssignmentDetail,
@@ -56,6 +56,11 @@ export function registerCanvasIpcHandlers(
 
   ipcMain.handle('canvas:set-token', (_event, token: string) => {
     setCanvasToken(db, token);
+    // A fresh token deserves a fresh chance -- otherwise the background
+    // scheduler's known-invalid skip (canvas/scheduler.ts) would keep
+    // silently declining to try the new token until a sync happened to
+    // succeed some other way.
+    clearSyncState(db, SYNC_KEY_TOKEN_INVALID);
   });
 
   ipcMain.handle('canvas:clear-token', () => {

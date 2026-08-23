@@ -21,11 +21,26 @@ export function setThemePreference(db: Database.Database, value: ThemePreference
   ).run('theme', value);
 }
 
+// The Settings UI write reaches the renderer through React state directly, so
+// it never needed this. The AI tool writes straight to the DB with no
+// renderer round trip at all, so without a broadcast the theme only visibly
+// changed after an app restart. Registered here rather than threaded through
+// every write site, the same reasoning as browser/hostRegistry.ts and
+// ai/navigatorRegistry.ts.
+let broadcastThemePreference: (value: ThemePreference) => void = () => {};
+
+export function broadcastThemePreferenceChange(value: ThemePreference): void {
+  broadcastThemePreference(value);
+}
+
 export function registerIpcHandlers(db: Database.Database, getWindow: () => BrowserWindow | null): void {
+  broadcastThemePreference = (value) => getWindow()?.webContents.send('theme:preference-changed', value);
+
   ipcMain.handle('theme:get', () => getThemePreference(db));
   ipcMain.handle('theme:set', (_event, value: ThemePreference) => {
     if (!VALID_THEMES.includes(value)) return;
     setThemePreference(db, value);
+    broadcastThemePreference(value);
   });
   ipcMain.handle('app:getVersion', () => app.getVersion());
 

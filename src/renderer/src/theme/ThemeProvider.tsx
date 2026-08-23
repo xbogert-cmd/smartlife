@@ -30,7 +30,15 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       })
       .finally(() => setLoaded(true));
     setSystemIsDark(window.matchMedia('(prefers-color-scheme: dark)').matches);
-    return window.smartlife.theme.onSystemChange((isDark) => setSystemIsDark(isDark));
+    const stopSystemChange = window.smartlife.theme.onSystemChange((isDark) => setSystemIsDark(isDark));
+    // Settings writes reach this state through setPreference below, but the
+    // AI's set_theme tool writes straight to the DB with no renderer round
+    // trip -- without this the theme only visibly changed after a restart.
+    const stopPreferenceChange = window.smartlife.theme.onPreferenceChange((value) => setPreferenceState(value));
+    return () => {
+      stopSystemChange();
+      stopPreferenceChange();
+    };
   }, []);
 
   const resolved = resolveTheme(preference, systemIsDark);

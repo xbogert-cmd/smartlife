@@ -9,12 +9,19 @@ const { openExternal, handlers } = vi.hoisted(() => ({
 vi.mock('electron', () => ({
   ipcMain: { handle: (channel: string, handler: (...args: unknown[]) => unknown) => handlers.set(channel, handler) },
   shell: { openExternal },
+  safeStorage: {
+    isEncryptionAvailable: () => true,
+    encryptString: (s: string) => Buffer.from(`enc:${s}`),
+    decryptString: (b: Buffer) => b.toString('utf8').replace(/^enc:/, ''),
+  },
 }));
 
 import { registerCanvasIpcHandlers } from './ipc';
+import { getSyncState, setSyncState, SYNC_KEY_TOKEN_INVALID } from './sync';
 
 const SCHEMA = `
 create table settings (key text primary key, value text not null);
+create table canvas_sync_state (key text primary key, value text not null);
 create table canvas_courses (
   id integer primary key, name text not null, course_code text, term_name text,
   current_score real, current_grade text, synced_at text not null default (datetime('now'))
@@ -113,5 +120,28 @@ describe('canvas:get-overdue', () => {
 
     const rows = (await handler!({}, 14)) as Array<{ id: number; name: string }>;
     expect(rows.map((row) => row.name)).toContain('Lab 3');
+  });
+});
+
+describe('canvas:set-token', () => {
+  beforeEach(() => {
+    handlers.clear();
+    db = new Database(':memory:');
+    db.pragma('foreign_keys = ON');
+    db.exec(SCHEMA);
+    registerCanvasIpcHandlers(db, () => null, {} as never);
+  });
+
+  it('clears a previously-known-invalid token flag so the scheduler gives the new token a fresh chance', async () => {
+    setSyncState(db, SYNC_KEY_TOKEN_INVALID, '1');
+
+    await handlers.get('canvas:set-token')?.({}, 'a-fresh-token');
+
+    expect(getSyncState(db, SYNC_KEY_TOKEN_INVALID)).toBeNull();
+  });
+
+  it('is a no-op on the flag when nothing was invalid to begin with', async () => {
+    await handlers.get('canvas:set-token')?.({}, 'a-fresh-token');
+    expect(getSyncState(db, SYNC_KEY_TOKEN_INVALID)).toBeNull();
   });
 });

@@ -19,6 +19,7 @@ beforeEach(() => {
       get: vi.fn().mockResolvedValue('light'),
       set: vi.fn().mockResolvedValue(undefined),
       onSystemChange: vi.fn(() => () => {}),
+      onPreferenceChange: vi.fn(() => () => {}),
     },
     app: { getVersion: vi.fn().mockResolvedValue('0.1.0') },
     navigation: { onNavigate: vi.fn(() => () => {}) },

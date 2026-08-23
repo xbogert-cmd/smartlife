@@ -107,6 +107,11 @@ const smartlife = {
       ipcRenderer.on('theme:system-changed', listener);
       return () => ipcRenderer.removeListener('theme:system-changed', listener);
     },
+    onPreferenceChange: (cb: (value: 'light' | 'dark' | 'system') => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, value: 'light' | 'dark' | 'system') => cb(value);
+      ipcRenderer.on('theme:preference-changed', listener);
+      return () => ipcRenderer.removeListener('theme:preference-changed', listener);
+    },
   },
   app: {
     getVersion: (): Promise<string> => ipcRenderer.invoke('app:getVersion'),

@@ -8,6 +8,7 @@ vi.mock('./api', () => ({
   listModules: vi.fn(),
   listModuleItems: vi.fn(),
   listFiles: vi.fn(),
+  listDiscussionTopics: vi.fn(),
   getPage: vi.fn(),
   getFile: vi.fn(),
   getSelf: vi.fn(),
@@ -15,7 +16,7 @@ vi.mock('./api', () => ({
 
 import * as api from './api';
 import { CanvasAuthError, CanvasNetworkError } from './errors';
-import { syncCore, getSyncState, SYNC_KEY_TOKEN_INVALID, SYNC_KEY_LAST_CORE } from './sync';
+import { syncCore, syncCourseContent, getSyncState, SYNC_KEY_TOKEN_INVALID, SYNC_KEY_LAST_CORE } from './sync';
 
 const CREDS = { baseUrl: 'https://uncw.instructure.com', token: 'test-token' };
 
@@ -314,5 +315,109 @@ describe('syncCore', () => {
     await syncCore(db, CREDS, new Date('2026-08-18T12:00:00Z'));
 
     expect(getSyncState(db, SYNC_KEY_LAST_CORE)).toBeNull();
+  });
+});
+
+const CONTENT_SCHEMA = `
+create table canvas_modules (
+  id integer primary key,
+  course_id integer not null references canvas_courses(id) on delete cascade,
+  name text, position integer, synced_at text not null default (datetime('now'))
+);
+create table canvas_module_items (
+  id integer primary key,
+  module_id integer not null references canvas_modules(id) on delete cascade,
+  course_id integer not null,
+  title text, type text, content_id integer, page_url text, html_url text, external_url text, position integer
+);
+create table canvas_files (
+  id integer primary key,
+  course_id integer not null references canvas_courses(id) on delete cascade,
+  display_name text, filename text, content_type text, size integer,
+  updated_at text, synced_at text not null default (datetime('now'))
+);
+create table canvas_pages (
+  course_id integer not null references canvas_courses(id) on delete cascade,
+  url text not null, title text, body text, updated_at text,
+  synced_at text not null default (datetime('now')), primary key (course_id, url)
+);
+create table canvas_discussion_topics (
+  id integer primary key,
+  course_id integer not null references canvas_courses(id) on delete cascade,
+  assignment_id integer, title text, require_initial_post integer not null default 0,
+  synced_at text not null default (datetime('now'))
+);
+`;
+
+function makeContentDb(): Database.Database {
+  const db = makeDb();
+  db.exec(CONTENT_SCHEMA);
+  db.prepare("insert into canvas_courses (id, name) values (1, 'Arabic 101')").run();
+  return db;
+}
+
+describe('syncCourseContent — orphaned page cleanup', () => {
+  beforeEach(() => {
+    vi.mocked(api.listFiles).mockResolvedValue([]);
+    vi.mocked(api.listDiscussionTopics).mockResolvedValue([]);
+  });
+
+  it("deletes a page's canvas_pages row once Canvas removes the module item pointing to it", async () => {
+    const db = makeContentDb();
+
+    vi.mocked(api.listModules).mockResolvedValueOnce([
+      {
+        id: 900,
+        name: 'Week 1',
+        position: 1,
+        items: [
+          { id: 9001, title: 'Syllabus', type: 'Page', page_url: 'syllabus', position: 1 },
+        ],
+      },
+    ] as never);
+    await syncCourseContent(db, CREDS, 1);
+
+    expect(db.prepare('select url from canvas_pages where course_id = 1').all()).toEqual([{ url: 'syllabus' }]);
+
+    // Canvas deletes the Syllabus page from the module -- the next sync
+    // returns the module with no items at all.
+    vi.mocked(api.listModules).mockResolvedValueOnce([
+      { id: 900, name: 'Week 1', position: 1, items: [] },
+    ] as never);
+    await syncCourseContent(db, CREDS, 1);
+
+    expect(db.prepare('select url from canvas_pages where course_id = 1').all()).toEqual([]);
+  });
+
+  it('keeps a page whose module item is still present', async () => {
+    const db = makeContentDb();
+    vi.mocked(api.listModules).mockResolvedValue([
+      {
+        id: 900,
+        name: 'Week 1',
+        position: 1,
+        items: [{ id: 9001, title: 'Syllabus', type: 'Page', page_url: 'syllabus', position: 1 }],
+      },
+    ] as never);
+
+    await syncCourseContent(db, CREDS, 1);
+    await syncCourseContent(db, CREDS, 1);
+
+    expect(db.prepare('select url from canvas_pages where course_id = 1').all()).toEqual([{ url: 'syllabus' }]);
+  });
+
+  it('does not touch another course’s pages', async () => {
+    const db = makeContentDb();
+    db.prepare("insert into canvas_courses (id, name) values (2, 'Financial Accounting')").run();
+    db.prepare(
+      "insert into canvas_pages (course_id, url, title) values (2, 'other-course-page', 'Untouched')"
+    ).run();
+
+    vi.mocked(api.listModules).mockResolvedValue([{ id: 900, name: 'Week 1', position: 1, items: [] }] as never);
+    await syncCourseContent(db, CREDS, 1);
+
+    expect(db.prepare('select url from canvas_pages where course_id = 2').all()).toEqual([
+      { url: 'other-course-page' },
+    ]);
   });
 });

@@ -9,12 +9,17 @@ function Probe() {
 
 function mockSmartlife(getValue: 'light' | 'dark' | 'system' = 'dark') {
   const listeners: Array<(isDark: boolean) => void> = [];
+  const preferenceListeners: Array<(value: 'light' | 'dark' | 'system') => void> = [];
   (window as unknown as { smartlife: typeof window.smartlife }).smartlife = {
     theme: {
       get: vi.fn().mockResolvedValue(getValue),
       set: vi.fn().mockResolvedValue(undefined),
       onSystemChange: vi.fn((cb: (isDark: boolean) => void) => {
         listeners.push(cb);
+        return () => {};
+      }),
+      onPreferenceChange: vi.fn((cb: (value: 'light' | 'dark' | 'system') => void) => {
+        preferenceListeners.push(cb);
         return () => {};
       }),
     },
@@ -107,7 +112,7 @@ function mockSmartlife(getValue: 'light' | 'dark' | 'system' = 'dark') {
       onFindResult: vi.fn(() => () => {}),
     },
   };
-  return listeners;
+  return { systemListeners: listeners, preferenceListeners };
 }
 
 beforeEach(() => {
@@ -136,7 +141,7 @@ describe('ThemeProvider', () => {
   });
 
   it('resolves "system" using the live system-change callback', async () => {
-    const listeners = mockSmartlife('system');
+    const { systemListeners } = mockSmartlife('system');
     render(
       <ThemeProvider>
         <Probe />
@@ -145,8 +150,27 @@ describe('ThemeProvider', () => {
 
     await waitFor(() => expect(screen.getByTestId('resolved').textContent).toBe('light'));
 
-    listeners[0](true);
+    systemListeners[0](true);
 
     await waitFor(() => expect(screen.getByTestId('resolved').textContent).toBe('dark'));
+  });
+
+  it('picks up a preference change pushed from main, with no remount', async () => {
+    // The AI's set_theme tool writes straight to the DB with no renderer
+    // round trip -- this is what used to leave the theme stuck until a
+    // restart, since the provider only ever read the preference on mount.
+    const { preferenceListeners } = mockSmartlife('light');
+    render(
+      <ThemeProvider>
+        <Probe />
+      </ThemeProvider>
+    );
+
+    await waitFor(() => expect(screen.getByTestId('resolved').textContent).toBe('light'));
+
+    preferenceListeners[0]('dark');
+
+    await waitFor(() => expect(screen.getByTestId('resolved').textContent).toBe('dark'));
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
   });
 });

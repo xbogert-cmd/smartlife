@@ -17,7 +17,7 @@ vi.mock('./sync', async () => {
   return { ...actual, syncCore: vi.fn() };
 });
 
-import { syncCore } from './sync';
+import { setSyncState, syncCore, SYNC_KEY_TOKEN_INVALID } from './sync';
 import { startCanvasScheduler } from './scheduler';
 import { setCanvasBaseUrl, setCanvasToken } from './token';
 
@@ -185,6 +185,44 @@ describe('startCanvasScheduler', () => {
     await scheduler.syncNow();
 
     expect(syncCore).toHaveBeenCalledTimes(2);
+    scheduler.stop();
+  });
+});
+
+describe('startCanvasScheduler — known-dead token', () => {
+  it('does not call syncCore on a background/focus tick once the token is known invalid', async () => {
+    const db = makeDb(true);
+    setSyncState(db, SYNC_KEY_TOKEN_INVALID, '1');
+    const scheduler = startCanvasScheduler(db, () => null);
+    await vi.runOnlyPendingTimersAsync();
+
+    expect(syncCore).not.toHaveBeenCalled();
+    scheduler.stop();
+  });
+
+  it('also skips an explicit syncNow() while the token is known invalid -- retrying the exact same dead token cannot succeed, and the resulting status is identical either way', async () => {
+    const db = makeDb(true);
+    setSyncState(db, SYNC_KEY_TOKEN_INVALID, '1');
+    const scheduler = startCanvasScheduler(db, () => null);
+    await vi.runOnlyPendingTimersAsync();
+
+    await scheduler.syncNow();
+
+    expect(syncCore).not.toHaveBeenCalled();
+    scheduler.stop();
+  });
+
+  it('resumes syncing once the flag is cleared, e.g. by the user providing a new token', async () => {
+    const db = makeDb(true);
+    setSyncState(db, SYNC_KEY_TOKEN_INVALID, '1');
+    const scheduler = startCanvasScheduler(db, () => null);
+    await vi.runOnlyPendingTimersAsync();
+    expect(syncCore).not.toHaveBeenCalled();
+
+    setSyncState(db, SYNC_KEY_TOKEN_INVALID, '0');
+    await scheduler.syncNow();
+
+    expect(syncCore).toHaveBeenCalledTimes(1);
     scheduler.stop();
   });
 });
