@@ -11,6 +11,7 @@ import type { AIProvider, StreamEvent } from './providers/types';
 import { buildSystemPrompt, type ViewContext } from './viewContext';
 import { notifyIfUnfocused } from '../notify';
 import { logError } from '../log';
+import { ProviderError } from './providers/types';
 
 // ponytail: single in-flight flag, only one conversation exists app-wide today.
 // Upgrade to a Set keyed by conversation id if multi-conversation support lands.
@@ -84,7 +85,12 @@ export async function handleSendMessage(
       // this one previously only went to console.error, which a packaged app
       // launched outside a terminal has no way to ever show anyone.
       logError('ai:turn-failed', error);
-      send({ type: 'text-delta', text: 'Something went wrong — try again.' });
+      // A provider opts into showing its own message (e.g. "credit balance
+      // too low") by throwing ProviderError specifically -- anything else,
+      // including a genuine bug, stays generic rather than putting a raw
+      // internal error message in front of the user.
+      const text = error instanceof ProviderError ? error.message : 'Something went wrong — try again.';
+      send({ type: 'text-delta', text });
       send({ type: 'turn-complete' });
     }
   } finally {

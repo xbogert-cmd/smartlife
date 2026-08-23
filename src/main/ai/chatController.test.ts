@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../db/migrate';
 import { setStoredApiKey } from './apiKey';
-import type { AIProvider } from './providers/types';
+import { ProviderError, type AIProvider } from './providers/types';
 
 vi.mock('electron', () => ({
   safeStorage: {
@@ -96,6 +96,21 @@ describe('handleSendMessage', () => {
     const count = db.prepare('select count(*) as count from ai_messages').get() as { count: number };
     expect(count.count).toBe(0);
     expect(window.sent.some((s) => JSON.stringify(s.payload).includes('went wrong'))).toBe(true);
+  });
+
+  it('shows a ProviderError’s own message verbatim instead of the generic fallback', async () => {
+    const { handleSendMessage } = await import('./chatController');
+    const db = makeDb();
+    setStoredApiKey(db, 'sk-ant-test');
+    const window = fakeWindow();
+    const provider: AIProvider = {
+      streamTurn: vi.fn().mockRejectedValue(new ProviderError('Your credit balance is too low to access the Anthropic API.')),
+    };
+    await handleSendMessage(db, () => window as never, 'hello', null, provider);
+    expect(
+      window.sent.some((s) => JSON.stringify(s.payload).includes('Your credit balance is too low'))
+    ).toBe(true);
+    expect(window.sent.some((s) => JSON.stringify(s.payload).includes('went wrong'))).toBe(false);
   });
 
   it('resolves requestConfirmation to false instead of hanging when there is no window', async () => {

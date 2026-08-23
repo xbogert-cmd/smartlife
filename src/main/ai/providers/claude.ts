@@ -1,9 +1,23 @@
-import Anthropic from '@anthropic-ai/sdk';
+import Anthropic, { APIError } from '@anthropic-ai/sdk';
 import { betaTool } from '@anthropic-ai/sdk/helpers/beta/json-schema';
 import type { ToolContext, ToolDefinition } from '../tools/types';
-import type { AIProvider, StreamEvent } from './types';
+import { ProviderError, type AIProvider, type StreamEvent } from './types';
 
 const MODEL = 'claude-sonnet-5';
+
+/**
+ * The SDK's own Error.message is the raw response JSON stringified (its
+ * makeMessage() only reads a top-level `.message`, but Anthropic's actual
+ * error body nests it one level deeper under `.error.message`) -- not
+ * something to show a person. Anthropic-specific error shape stays here,
+ * not in chatController.ts, so a second provider never has to know about it.
+ */
+export function describeError(error: unknown): string | null {
+  if (!(error instanceof APIError)) return null;
+  const body = error.error as { error?: { message?: unknown } } | undefined;
+  const message = body?.error?.message;
+  return typeof message === 'string' ? message : null;
+}
 
 function toBetaTools(tools: ToolDefinition[], ctx: ToolContext) {
   return tools.map((tool) =>
@@ -43,19 +57,24 @@ export const claudeProvider: AIProvider = {
 
     let finalContent: unknown = [{ type: 'text', text: '' }];
 
-    for await (const messageStream of runner) {
-      for await (const event of messageStream) {
-        if (event.type === 'content_block_start' && event.content_block.type === 'tool_use') {
-          const toolName = event.content_block.name;
-          const toolLabel = toolLabels.get(toolName) ?? toolName;
-          onEvent({ type: 'tool-status', toolName, toolLabel } satisfies StreamEvent);
+    try {
+      for await (const messageStream of runner) {
+        for await (const event of messageStream) {
+          if (event.type === 'content_block_start' && event.content_block.type === 'tool_use') {
+            const toolName = event.content_block.name;
+            const toolLabel = toolLabels.get(toolName) ?? toolName;
+            onEvent({ type: 'tool-status', toolName, toolLabel } satisfies StreamEvent);
+          }
+          if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+            onEvent({ type: 'text-delta', text: event.delta.text } satisfies StreamEvent);
+          }
         }
-        if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
-          onEvent({ type: 'text-delta', text: event.delta.text } satisfies StreamEvent);
-        }
+        const finalMessage = await messageStream.finalMessage();
+        finalContent = finalMessage.content;
       }
-      const finalMessage = await messageStream.finalMessage();
-      finalContent = finalMessage.content;
+    } catch (error) {
+      const message = describeError(error);
+      throw message !== null ? new ProviderError(message) : error;
     }
 
     onEvent({ type: 'turn-complete' } satisfies StreamEvent);
