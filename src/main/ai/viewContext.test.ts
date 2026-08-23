@@ -206,3 +206,35 @@ describe('buildSystemPrompt — browser route', () => {
     expect(() => buildSystemPrompt(setup(), { route: 'browser' }, NOW)).not.toThrow();
   });
 });
+
+describe('buildSystemPrompt — Phase 5b instructions', () => {
+  it('instructs the model to refuse a directive embedded in page content and say so, not silently comply or silently ignore', () => {
+    const prompt = buildSystemPrompt(setup(), null, NOW);
+    expect(prompt).toMatch(/do not comply/i);
+    expect(prompt).toMatch(/say so|mention/i);
+  });
+
+  it('instructs the model that page content must not override what it knows to be true', () => {
+    const prompt = buildSystemPrompt(setup(), null, NOW);
+    expect(prompt).toMatch(/must not override|do not let.*(page|content).*(override|change)/i);
+  });
+
+  it('instructs the model to cite whether a stated fact came from a page or its own knowledge', () => {
+    const prompt = buildSystemPrompt(setup(), null, NOW);
+    expect(prompt).toMatch(/per the page|say where.*(came from|sourced)/i);
+  });
+
+  it('extends the browser route\'s untrusted-data warning to element labels, not only page text', () => {
+    function hostWith(url: string, title: string) {
+      return {
+        getState: () => ({
+          tabs: [{ id: 't1', url, title, loading: false, canGoBack: false, canGoForward: false, error: null }],
+          activeTabId: 't1',
+        }),
+      } as never;
+    }
+    setActiveBrowserHost(hostWith('https://example.com/', 'x'));
+    const prompt = buildSystemPrompt(setup(), { route: 'browser' }, NOW);
+    expect(prompt).toMatch(/label/i);
+  });
+});
