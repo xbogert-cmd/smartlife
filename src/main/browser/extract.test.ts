@@ -658,4 +658,37 @@ describe('buildElementActionScript', () => {
     expect(result.optionNotFound).toBe(true);
     expect(result.availableOptions).toEqual(['A) Nucleus', 'B) Mitochondria']);
   });
+
+  it('returns found:false when the tagged element has since been hidden with display:none', () => {
+    document.body.innerHTML = '<button data-smartlife-ref="ref_1" style="display:none">Submit</button>';
+    const result = runElementActionScript('ref_1', 'click', null) as { found: boolean };
+    expect(result.found).toBe(false);
+  });
+
+  it('reaches a React-style controlled input by bypassing its instance-level value override', () => {
+    document.body.innerHTML = '<input data-smartlife-ref="ref_1" type="text" value="">';
+    const input = document.querySelector('input') as HTMLInputElement;
+    const nativeDescriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!;
+
+    // Simulates what React does: an instance-level accessor property that
+    // shadows the prototype's value setter and tracks writes separately,
+    // the same mechanism a plain `el.value = x` assignment would hit.
+    let shadowedValue = '';
+    Object.defineProperty(input, 'value', {
+      configurable: true,
+      get() {
+        return shadowedValue;
+      },
+      set(v: string) {
+        shadowedValue = v;
+      },
+    });
+
+    runElementActionScript('ref_1', 'type', 'Photosynthesis');
+
+    // Read the TRUE underlying DOM value, bypassing the instance override,
+    // to prove the native setter was actually invoked.
+    const trueValue = nativeDescriptor.get!.call(input);
+    expect(trueValue).toBe('Photosynthesis');
+  });
 });

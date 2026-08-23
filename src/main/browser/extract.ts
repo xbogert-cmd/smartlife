@@ -135,9 +135,15 @@ export function buildElementActionScript(
   const refLiteral = JSON.stringify(ref);
   const payloadLiteral = JSON.stringify(payload ?? '');
   return `(function () {
+  ${VISIBILITY_CHECK_JS}
   ${DESCRIBE_ELEMENT_JS}
   var el = document.querySelector('[data-smartlife-ref="' + ${refLiteral}.replace(/"/g, '') + '"]');
   if (!el) return { found: false };
+  // Treat "found but no longer visible" the same as "not found" -- the user
+  // approved an action against a description of a visible element, and a
+  // page that hid it since (e.g. its own JS setting display:none) means
+  // that description is no longer true, even if role/label are unchanged.
+  if (!isVisible(el)) return { found: false };
   var described = describeElement(el);
   if (!described) return { found: false };
   var kind = ${JSON.stringify(kind)};
@@ -145,7 +151,19 @@ export function buildElementActionScript(
   if (kind === 'click') {
     el.click();
   } else if (kind === 'type') {
-    el.value = payload;
+    // Setting el.value directly and dispatching a synthetic 'input' event
+    // does not reliably reach React-controlled inputs: React overrides the
+    // native value setter to track changes, and a plain assignment bypasses
+    // it, so React's internal state never updates and reverts the field on
+    // its next render. Calling the native setter directly (bypassing
+    // whatever the framework has overridden it with) before dispatching the
+    // event fixes both a plain uncontrolled input (the native setter is
+    // what it would have used anyway) and a React-controlled one (React's
+    // own change-tracking hooks the native setter, so it correctly fires).
+    var nativeInputSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+    var nativeTextareaSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+    var nativeSetter = el.tagName === 'TEXTAREA' ? nativeTextareaSetter : nativeInputSetter;
+    nativeSetter.call(el, payload);
     el.dispatchEvent(new Event('input', { bubbles: true }));
     el.dispatchEvent(new Event('change', { bubbles: true }));
   } else if (kind === 'select') {
