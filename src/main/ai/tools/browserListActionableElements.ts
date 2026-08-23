@@ -39,7 +39,7 @@ export const browserListActionableElementsTool: ToolDefinition = {
     const lines = elements.map((el) => {
       const state = el.state !== null ? ` (currently: ${el.state})` : '';
       const options = el.options !== null ? ` Options: ${el.options.join(', ')}.` : '';
-      return `- [${el.ref}] ${el.role}: "${el.label}"${state}${options}`;
+      return `- ref: ${el.ref}, ${el.role}: "${el.label}"${state}${options}`;
     });
     return `Actionable elements:\n${lines.join('\n')}`;
   },

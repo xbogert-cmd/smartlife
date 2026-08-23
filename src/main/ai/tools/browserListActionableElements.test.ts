@@ -27,7 +27,8 @@ describe('browser_list_actionable_elements', () => {
 
     const out = await browserListActionableElementsTool.run({}, ctx());
 
-    expect(out).toContain('ref_1');
+    expect(out).toContain('ref: ref_1');
+    expect(out).not.toContain('[ref_1]');
     expect(out).toContain('button');
     expect(out).toContain('Submit Quiz');
   });
