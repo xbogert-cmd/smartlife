@@ -11,6 +11,7 @@ import { calendarUpdateEventTool } from './calendarUpdateEvent';
 import { calendarDeleteEventTool } from './calendarDeleteEvent';
 import { browserListTabsTool } from './browserListTabs';
 import { browserReadPageTool } from './browserReadPage';
+import { browserListActionableElementsTool } from './browserListActionableElements';
 import { canvasSubmitAssignmentTool } from './canvasSubmitAssignment';
 import { canvasFindAssignmentTool } from './canvasFindAssignment';
 import { canvasOpenAssignmentTool } from './canvasOpenAssignment';
@@ -28,6 +29,7 @@ export const TOOLS: ToolDefinition[] = [
   calendarDeleteEventTool,
   browserListTabsTool,
   browserReadPageTool,
+  browserListActionableElementsTool,
   canvasSubmitAssignmentTool,
   canvasFindAssignmentTool,
   canvasOpenAssignmentTool,
