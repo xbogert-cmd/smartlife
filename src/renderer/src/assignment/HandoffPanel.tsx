@@ -15,6 +15,15 @@ interface HandoffPanelProps {
   reason: 'external_tool' | 'quiz' | 'unresolved_discussion';
 }
 
+// Module-level, not component state: it must survive HandoffPanel remounting
+// (navigate away from the assignment and back is a fresh component
+// instance) so a second visit reuses the tab instead of opening a duplicate.
+// Keyed by htmlUrl rather than assignment id -- each assignment already has
+// a distinct Canvas URL, so no separate id is needed. Holds a tab id, not a
+// url: once Canvas's own LTI launch navigates the tab to the tool's domain,
+// its live url no longer matches htmlUrl, but the id is still the same tab.
+const handoffTabByUrl = new Map<string, string>();
+
 /**
  * The embedded browser, in the workspace, already on the Canvas assignment page.
  *
@@ -26,14 +35,29 @@ interface HandoffPanelProps {
 export function HandoffPanel({ htmlUrl, reason }: HandoffPanelProps): React.JSX.Element {
   // useBrowser is what calls setRouteActive, which is what puts the native view
   // on screen. Routes are mutually exclusive, so this never fights /browser.
-  useBrowser();
+  const { state, activateTab } = useBrowser();
   const opened = useRef(false);
 
   useEffect(() => {
-    if (htmlUrl === null || opened.current) return;
+    // Wait for the initial tab list so the reuse check below has something
+    // real to check against -- opening blind here would race a tab that
+    // already exists but hasn't loaded into state yet.
+    if (htmlUrl === null || opened.current || state === null) return;
     opened.current = true;
-    void window.smartlife.browser.openTab(htmlUrl).catch(() => {});
-  }, [htmlUrl]);
+
+    const existingTabId = handoffTabByUrl.get(htmlUrl);
+    const stillOpen = existingTabId !== undefined && state.tabs.some((tab) => tab.id === existingTabId);
+
+    if (stillOpen) {
+      void activateTab(existingTabId);
+      return;
+    }
+
+    void window.smartlife.browser
+      .openTab(htmlUrl)
+      .then((tabId) => handoffTabByUrl.set(htmlUrl, tabId))
+      .catch(() => {});
+  }, [htmlUrl, state, activateTab]);
 
   if (htmlUrl === null) {
     return (
