@@ -4,10 +4,15 @@ import { logError } from '../log';
 import { resolveAddressInput } from './address';
 import { createDownloadHandler, type DownloadItemLike, type DownloadRequest } from './downloads';
 import {
+  buildElementActionScript,
+  buildElementListScript,
   buildExtractionScript,
   MAX_EXTRACT_CHARS,
+  shapeElementDescriptor,
   shapeExtraction,
   type PageExtract,
+  type RawActionResult,
+  type RawElementDescriptor,
   type RawExtraction,
 } from './extract';
 import { toViewBounds, type ViewportRect } from './geometry';
@@ -19,6 +24,7 @@ import {
   EMBEDDED_WEB_PREFERENCES,
 } from './handlers';
 import { recordVisit } from './history';
+import { invalidateTab, recordElements, resolveElement, type ElementDescriptor } from './refs';
 import { isAllowedNavigationUrl } from './security';
 import { createSuspendCounter } from './suspend';
 import { BLANK_URL, createInitialState, tabReducer, type TabAction, type TabState } from './tabs';
@@ -32,10 +38,19 @@ const ERR_ABORTED = -3;
  *  ourselves, but the user still needs to see why the page did not change. */
 const ERR_BLOCKED_SCHEME = -10;
 
+/** Caps how many interactive elements a single listActionableElements call describes to the AI. */
+const MAX_ACTIONABLE_ELEMENTS = 60;
+
 export interface FindResult {
   activeMatchOrdinal: number;
   matches: number;
 }
+
+export type ElementActionResult =
+  | { ok: true; role: string; label: string }
+  | { ok: false; reason: 'not-found' }
+  | { ok: false; reason: 'changed' }
+  | { ok: false; reason: 'no-such-option'; available: string[] };
 
 export interface BrowserHostOptions {
   getWindow: () => BaseWindow | null;
@@ -64,6 +79,10 @@ export interface BrowserHost {
   resume(): void;
   resetSuspend(): void;
   readPage(id?: string): Promise<PageExtract>;
+  listActionableElements(id?: string): Promise<ElementDescriptor[]>;
+  clickElement(ref: string): Promise<ElementActionResult>;
+  typeIntoElement(ref: string, text: string): Promise<ElementActionResult>;
+  selectOption(ref: string, optionText: string): Promise<ElementActionResult>;
   destroy(): void;
 }
 
@@ -170,6 +189,13 @@ export function createBrowserHost(options: BrowserHostOptions): BrowserHost {
         canGoBack: contents.navigationHistory.canGoBack(),
         canGoForward: contents.navigationHistory.canGoForward(),
       });
+      // Any committed navigation -- AI-initiated or not -- can leave stale
+      // refs pointing at elements that no longer exist. The generation this
+      // clears is a completely different mechanism from the live re-
+      // verification in performElementAction: this catches navigation-shaped
+      // changes; that catches DOM mutation a single-page app makes without
+      // ever navigating at all.
+      invalidateTab(id);
       if (url !== BLANK_URL) {
         try {
           recordVisit(db, url, contents.getTitle() || null);
@@ -303,6 +329,44 @@ export function createBrowserHost(options: BrowserHostOptions): BrowserHost {
     return id;
   }
 
+  async function performElementAction(
+    ref: string,
+    kind: 'click' | 'type' | 'select',
+    payload: string | null
+  ): Promise<ElementActionResult> {
+    const stored = resolveElement(ref);
+    if (!stored) return { ok: false, reason: 'not-found' };
+
+    const contents = views.get(stored.tabId)?.webContents;
+    if (!contents) return { ok: false, reason: 'not-found' };
+
+    let result: RawActionResult;
+    try {
+      result = (await contents.executeJavaScript(
+        buildElementActionScript(ref, kind, payload),
+        true
+      )) as RawActionResult;
+    } catch (error) {
+      logError('browser:elementAction', error);
+      return { ok: false, reason: 'changed' };
+    }
+
+    if (!result.found) return { ok: false, reason: 'changed' };
+    // Re-verified against the LIVE page, not the registry's recollection of
+    // it -- this is what catches a single-page app that mutated the element
+    // (or replaced it with something else at the same tag) since the ref
+    // was issued, which invalidateTab's navigation hook cannot see at all.
+    if (result.role !== stored.role || result.label !== stored.label) {
+      return { ok: false, reason: 'changed' };
+    }
+    if (kind === 'select' && result.optionNotFound) {
+      return { ok: false, reason: 'no-such-option', available: result.availableOptions ?? [] };
+    }
+
+    invalidateTab(stored.tabId);
+    return { ok: true, role: result.role, label: result.label };
+  }
+
   syncViews();
 
   return {
@@ -363,6 +427,28 @@ export function createBrowserHost(options: BrowserHostOptions): BrowserHost {
         return shapeExtraction(null, fallbackUrl);
       }
     },
+
+    async listActionableElements(id) {
+      const targetId = id ?? state.activeTabId;
+      const contents = views.get(targetId)?.webContents;
+      if (!contents) return [];
+      let raw: RawElementDescriptor[];
+      try {
+        raw = (await contents.executeJavaScript(
+          buildElementListScript(MAX_ACTIONABLE_ELEMENTS),
+          true
+        )) as RawElementDescriptor[];
+      } catch (error) {
+        logError('browser:listActionableElements', error);
+        return [];
+      }
+      const shaped = raw.map((el) => shapeElementDescriptor(el));
+      return recordElements(targetId, shaped);
+    },
+
+    clickElement: (ref) => performElementAction(ref, 'click', null),
+    typeIntoElement: (ref, text) => performElementAction(ref, 'type', text),
+    selectOption: (ref, optionText) => performElementAction(ref, 'select', optionText),
 
     destroy() {
       for (const id of [...views.keys()]) destroyView(id);

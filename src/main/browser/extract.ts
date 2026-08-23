@@ -94,6 +94,22 @@ export interface RawElementDescriptor {
 }
 
 /**
+ * A discriminated union on `found`, not a bag of optional properties: this
+ * is what lets performElementAction's `if (!result.found) return ...` in
+ * view.ts actually narrow result.role/result.label to required strings
+ * afterward, instead of leaving them typed string | undefined.
+ */
+export type RawActionResult =
+  | { found: false }
+  | {
+      found: true;
+      role: 'button' | 'link' | 'text' | 'checkbox' | 'radio' | 'select';
+      label: string;
+      optionNotFound?: boolean;
+      availableOptions?: string[];
+    };
+
+/**
  * Walks the page for interactive elements, tags each one with a
  * data-smartlife-ref attribute the AI does not choose (assigned main-side
  * after this script returns, by refs.ts), and returns their role, label,
