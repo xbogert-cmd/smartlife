@@ -189,10 +189,14 @@ describe('browser_read_page', () => {
 });
 
 describe('registry', () => {
-  it('exposes no tool that can act on a page', async () => {
+  it('gates every action-capable browser tool behind ALWAYS_CONFIRM, and nothing else', async () => {
     const { TOOLS } = await import('./registry');
     const browserTools = TOOLS.filter((tool) => tool.name.startsWith('browser_'));
-    expect(browserTools.map((tool) => tool.name).sort()).toEqual(['browser_list_tabs', 'browser_read_page']);
-    for (const tool of browserTools) expect(tool.tier).toBe('READ');
+    const actionTools = ['browser_click', 'browser_select', 'browser_type'];
+    const readTools = ['browser_list_actionable_elements', 'browser_list_tabs', 'browser_read_page'];
+    expect(browserTools.map((tool) => tool.name).sort()).toEqual([...actionTools, ...readTools].sort());
+    for (const tool of browserTools) {
+      expect(tool.tier).toBe(actionTools.includes(tool.name) ? 'ALWAYS_CONFIRM' : 'READ');
+    }
   });
 });
