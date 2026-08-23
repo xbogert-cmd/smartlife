@@ -691,4 +691,36 @@ describe('buildElementActionScript', () => {
     const trueValue = nativeDescriptor.get!.call(input);
     expect(trueValue).toBe('Photosynthesis');
   });
+
+  it('reaches a React-style controlled select by bypassing its instance-level value override', () => {
+    document.body.innerHTML = `
+      <select data-smartlife-ref="ref_1">
+        <option value="a">A) Nucleus</option>
+        <option value="b">B) Mitochondria</option>
+      </select>
+    `;
+    const select = document.querySelector('select') as HTMLSelectElement;
+    const nativeDescriptor = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!;
+
+    // Simulates what React does: an instance-level accessor property that
+    // shadows the prototype's value setter and tracks writes separately,
+    // the same mechanism a plain `el.value = x` assignment would hit.
+    let shadowedValue = '';
+    Object.defineProperty(select, 'value', {
+      configurable: true,
+      get() {
+        return shadowedValue;
+      },
+      set(v: string) {
+        shadowedValue = v;
+      },
+    });
+
+    runElementActionScript('ref_1', 'select', 'B) Mitochondria');
+
+    // Read the TRUE underlying DOM value, bypassing the instance override,
+    // to prove the native setter was actually invoked.
+    const trueValue = nativeDescriptor.get!.call(select);
+    expect(trueValue).toBe('b');
+  });
 });

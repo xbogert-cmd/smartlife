@@ -175,7 +175,12 @@ export function buildElementActionScript(
       var available = Array.prototype.map.call(el.options, function (o) { return o.textContent.trim(); });
       return { found: true, role: described.role, label: described.label, optionNotFound: true, availableOptions: available };
     }
-    el.value = match.value;
+    // Same React-controlled-element problem as the 'type' branch above:
+    // HTMLSelectElement.prototype.value's native setter is overridden the
+    // same way, so a plain assignment silently fails to register the chosen
+    // option on a React-controlled <select>. Use the native setter directly.
+    var nativeSelectSetter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set;
+    nativeSelectSetter.call(el, match.value);
     el.dispatchEvent(new Event('change', { bubbles: true }));
   }
   return { found: true, role: described.role, label: described.label };
