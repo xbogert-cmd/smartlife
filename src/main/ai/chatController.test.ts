@@ -10,6 +10,7 @@ vi.mock('electron', () => ({
     encryptString: (s: string) => Buffer.from(`enc:${s}`),
     decryptString: (b: Buffer) => b.toString('utf8').replace(/^enc:/, ''),
   },
+  app: { getPath: () => '/tmp/logs' },
 }));
 
 const INIT_SQL = `create table settings (key text primary key, value text not null);`;

@@ -10,6 +10,7 @@ import type { ToolContext } from './tools/types';
 import type { AIProvider, StreamEvent } from './providers/types';
 import { buildSystemPrompt, type ViewContext } from './viewContext';
 import { notifyIfUnfocused } from '../notify';
+import { logError } from '../log';
 
 // ponytail: single in-flight flag, only one conversation exists app-wide today.
 // Upgrade to a Set keyed by conversation id if multi-conversation support lands.
@@ -78,7 +79,11 @@ export async function handleSendMessage(
       appendMessage(db, conversationId, 'user', [{ type: 'text', text: userText }]);
       appendMessage(db, conversationId, 'assistant', finalContent as unknown[]);
     } catch (error) {
-      console.error('AI turn failed:', error);
+      // Every other main-process error path (browser, sync, downloads) is
+      // persisted via logError so it survives past the session that hit it --
+      // this one previously only went to console.error, which a packaged app
+      // launched outside a terminal has no way to ever show anyone.
+      logError('ai:turn-failed', error);
       send({ type: 'text-delta', text: 'Something went wrong — try again.' });
       send({ type: 'turn-complete' });
     }
