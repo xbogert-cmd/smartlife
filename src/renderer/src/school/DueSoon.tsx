@@ -1,14 +1,22 @@
 import { formatDue } from './formatters';
 import { SCHOOL_ACCENT, type UpcomingAssignment } from './types';
 
-export function DueSoon({ items }: { items: UpcomingAssignment[] }): React.JSX.Element {
+export function DueSoon({
+  items,
+  title = 'Due soon',
+  emptyText = 'Nothing due in the next two weeks.',
+}: {
+  items: UpcomingAssignment[];
+  title?: string;
+  emptyText?: string;
+}): React.JSX.Element {
   return (
     <section className="flex flex-col gap-2">
       <h2 className="text-sm font-semibold uppercase tracking-wide" style={{ color: 'var(--color-text-muted)' }}>
-        Due soon
+        {title}
       </h2>
       {items.length === 0 ? (
-        <p style={{ color: 'var(--color-text-muted)' }}>Nothing due in the next two weeks.</p>
+        <p style={{ color: 'var(--color-text-muted)' }}>{emptyText}</p>
       ) : (
         <ul className="flex flex-col gap-1.5">
           {items.map((item) => (
