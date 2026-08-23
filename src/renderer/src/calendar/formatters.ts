@@ -29,6 +29,11 @@ function clockTime(date: Date): string {
   return `${hour12(date.getHours())}:${String(date.getMinutes()).padStart(2, '0')}`;
 }
 
+/** "2:05 AM" / "1:30 PM" for a single point in time, not a range. */
+export function formatClockTime(date: Date): string {
+  return `${clockTime(date)} ${meridiem(date.getHours())}`;
+}
+
 /**
  * "2:00 – 3:30 PM" when both ends share a meridiem, "11:00 AM – 1:00 PM" when
  * they do not. Repeating AM/PM on both sides of every range is noisy in a grid

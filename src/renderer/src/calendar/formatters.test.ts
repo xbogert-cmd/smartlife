@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatDayHeader, formatEventRange, formatEventTime, formatHourLabel, formatRelative } from './formatters';
+import { formatClockTime, formatDayHeader, formatEventRange, formatEventTime, formatHourLabel, formatRelative } from './formatters';
 import type { CalendarEvent } from './types';
 
 function event(overrides: Partial<CalendarEvent>): CalendarEvent {
@@ -26,6 +26,26 @@ describe('formatHourLabel', () => {
     expect(formatHourLabel(9)).toBe('9 AM');
     expect(formatHourLabel(12)).toBe('12 PM');
     expect(formatHourLabel(18)).toBe('6 PM');
+  });
+});
+
+describe('formatClockTime', () => {
+  it('formats a single point in time with minutes and a meridiem', () => {
+    // TodayPanel.tsx reuses this for assignment due times instead of
+    // reimplementing the hour12/meridiem logic itself.
+    expect(formatClockTime(new Date(2026, 7, 22, 14, 5))).toBe('2:05 PM');
+  });
+
+  it('formats midnight as 12, not 0', () => {
+    expect(formatClockTime(new Date(2026, 7, 22, 0, 15))).toBe('12:15 AM');
+  });
+
+  it('formats noon as 12 PM, not 0 PM', () => {
+    expect(formatClockTime(new Date(2026, 7, 22, 12, 5))).toBe('12:05 PM');
+  });
+
+  it('zero-pads single-digit minutes', () => {
+    expect(formatClockTime(new Date(2026, 7, 22, 9, 5))).toBe('9:05 AM');
   });
 });
 

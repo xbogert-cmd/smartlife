@@ -1,15 +1,12 @@
 import { Link } from 'react-router-dom';
-import { formatEventTime } from '../calendar/formatters';
+import { formatClockTime, formatEventTime } from '../calendar/formatters';
 import { CALENDAR_ACCENT } from '../calendar/types';
 import { SCHOOL_ACCENT } from '../school/types';
 import type { TodayItem } from './timeline';
 
 function timeLabel(item: TodayItem): string {
   if (item.kind === 'event') return formatEventTime(item.event);
-  const due = new Date(item.at);
-  const hours = due.getHours();
-  const hour12 = hours % 12 === 0 ? 12 : hours % 12;
-  return `${hour12}:${String(due.getMinutes()).padStart(2, '0')} ${hours < 12 ? 'AM' : 'PM'}`;
+  return formatClockTime(new Date(item.at));
 }
 
 function Row({ item }: { item: TodayItem }): React.JSX.Element {
