@@ -46,6 +46,35 @@ export function useConversation(view: unknown = null) {
       .catch(() => {});
   }, []);
 
+  // Recovers a confirmation that became pending while the dock was closed
+  // (and thus this hook wasn't mounted to catch the live onConfirmRequest
+  // push) -- same pattern as usePendingConfirmationBadge.ts, which recovers
+  // it for the sidebar badge. Also clears pendingConfirm if it resolves
+  // through some path other than this component's own respondToConfirm,
+  // e.g. the 24-hour timeout firing while the dock happens to be open.
+  useEffect(() => {
+    let cancelled = false;
+    window.smartlife.ai
+      .getPendingConfirmation()
+      .then((current) => {
+        // A live onConfirmRequest push (below) always wins over this
+        // recovery fetch -- it can only resolve to something more recent.
+        // Without this guard, a slow-resolving fetch that lands after a
+        // live push already set pendingConfirm would stomp it back out.
+        if (!cancelled) setPendingConfirm((prev) => (prev !== null ? prev : current));
+      })
+      .catch(() => {});
+
+    const stopResolved = window.smartlife.ai.onConfirmResolved((id) => {
+      setPendingConfirm((prev) => (prev?.id === id ? null : prev));
+    });
+
+    return () => {
+      cancelled = true;
+      stopResolved();
+    };
+  }, []);
+
   useEffect(() => {
     const unsubscribeStream = window.smartlife.ai.onStreamEvent((event) => {
       if (event.type === 'text-delta') {

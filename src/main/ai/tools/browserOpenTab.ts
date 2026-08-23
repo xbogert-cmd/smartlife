@@ -52,7 +52,7 @@ export const browserOpenTabTool: ToolDefinition = {
     // Deliberately no activateTab call and no navigator switch -- unlike
     // canvas_open_assignment, this opens in the background so it does not
     // interrupt whatever the user is currently doing.
-    host.openTab(url);
+    host.openTab(url, false);
 
     return `Opened ${url} in a background tab. Use browser_list_tabs to find its index, then browser_read_page to read it.`;
   },

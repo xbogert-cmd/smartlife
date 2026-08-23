@@ -1,6 +1,6 @@
 import type { ToolDefinition } from './types';
 import { gate } from '../permissions';
-import { getActiveBrowserHost } from '../../browser/hostRegistry';
+import { getActiveBrowserHost, originForTab } from '../../browser/hostRegistry';
 import { resolveElement } from '../../browser/refs';
 
 const CONFIRMATION_TIMEOUT_MS = 24 * 60 * 60 * 1000;
@@ -34,7 +34,9 @@ export const browserTypeTool: ToolDefinition = {
 
     // Never summarised or truncated -- the user is approving specific bytes,
     // same rule canvas_submit_assignment follows for submission text.
-    const description = `Type into the field labeled "${target.label}".\n\n--- exactly what will be typed ---\n${text}`;
+    const origin = originForTab(target.tabId);
+    const prefix = origin.length > 0 ? `On ${origin}: ` : '';
+    const description = `${prefix}Type into the field labeled "${target.label}".\n\n--- exactly what will be typed ---\n${text}`;
     const approved = await gate(
       'ALWAYS_CONFIRM',
       ctx.mode,

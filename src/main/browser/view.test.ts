@@ -208,6 +208,19 @@ describe('tabs', () => {
     expect(loaded).not.toContain('data:text/html');
   });
 
+  it('activates a newly opened tab by default', () => {
+    const { host } = makeHost();
+    const opened = host.openTab('https://uncw.edu/');
+    expect(host.getState().activeTabId).toBe(opened);
+  });
+
+  it('does not activate the new tab, or otherwise touch what the user is looking at, when opened in the background', () => {
+    const { host } = makeHost();
+    const before = host.getState().activeTabId;
+    host.openTab('https://uncw.edu/', false);
+    expect(host.getState().activeTabId).toBe(before);
+  });
+
   it('refuses a disallowed url passed to openTab by the app', () => {
     const { host, added } = makeHost();
     host.openTab('file:///etc/passwd');
@@ -547,7 +560,7 @@ describe('clickElement / typeIntoElement / selectOption', () => {
     const { host, added } = makeHost();
     added[0].webContents.executeResult = [{ role: 'button', label: 'Submit', value: null, checked: null, selectedOptionText: null, options: null }];
     const [element] = await host.listActionableElements();
-    added[0].webContents.executeResult = { found: true, role: 'button', label: 'Submit' };
+    added[0].webContents.executeResult = { found: true, changed: false, role: 'button', label: 'Submit' };
 
     const result = await host.clickElement(element.ref);
 
@@ -559,9 +572,12 @@ describe('clickElement / typeIntoElement / selectOption', () => {
     added[0].webContents.executeResult = [{ role: 'button', label: 'Submit', value: null, checked: null, selectedOptionText: null, options: null }];
     const [element] = await host.listActionableElements();
     // The page mutated its own DOM (e.g. a single-page app re-render)
-    // without a full navigation -- the ref is still in the registry, but
-    // the live element it now finds has a different label.
-    added[0].webContents.executeResult = { found: true, role: 'button', label: 'Something else now' };
+    // without a full navigation -- the ref is still in the registry, but the
+    // live element it now finds has a different label. The comparison that
+    // detects this now runs in-page (extract.test.ts covers the real script's
+    // comparison logic in detail); here we simulate its result, which is
+    // `changed: true` and the click never having happened.
+    added[0].webContents.executeResult = { found: true, changed: true, role: 'button', label: 'Something else now' };
 
     const result = await host.clickElement(element.ref);
 
@@ -583,7 +599,7 @@ describe('clickElement / typeIntoElement / selectOption', () => {
     const { host, added } = makeHost();
     added[0].webContents.executeResult = [{ role: 'button', label: 'Submit', value: null, checked: null, selectedOptionText: null, options: null }];
     const [element] = await host.listActionableElements();
-    added[0].webContents.executeResult = { found: true, role: 'button', label: 'Submit' };
+    added[0].webContents.executeResult = { found: true, changed: false, role: 'button', label: 'Submit' };
 
     await host.clickElement(element.ref);
 
@@ -609,6 +625,7 @@ describe('clickElement / typeIntoElement / selectOption', () => {
     const [element] = await host.listActionableElements();
     added[0].webContents.executeResult = {
       found: true,
+      changed: false,
       role: 'select',
       label: 'Question 3',
       optionNotFound: true,
@@ -641,6 +658,20 @@ describe('navigation invalidates refs', () => {
     const [element] = await host.listActionableElements();
 
     added[0].webContents.emit('did-navigate-in-page', {}, 'https://example.com/step-2', true);
+
+    expect(resolveElement(element.ref)).toBeNull();
+  });
+
+  it('invalidates a tab’s refs when the tab itself is closed, so a stale ref cannot resolve after the tab is gone', async () => {
+    const { host, added } = makeHost();
+    const opened = host.openTab('https://uncw.edu/');
+    added[added.length - 1].webContents.executeResult = [
+      { role: 'button', label: 'Submit', value: null, checked: null, selectedOptionText: null, options: null },
+    ];
+    const [element] = await host.listActionableElements(opened);
+    expect(resolveElement(element.ref)).not.toBeNull();
+
+    host.closeTab(opened);
 
     expect(resolveElement(element.ref)).toBeNull();
   });

@@ -34,6 +34,20 @@ describe('browser_click', () => {
     expect(requestConfirmation.mock.calls[0][1]).toMatch(/button.*Submit Quiz/i);
   });
 
+  it('names the target tab’s origin in the confirmation, so the user can tell which site the action lands on', async () => {
+    const [el] = recordElements('tab-origin-1', [{ role: 'button', label: 'Submit Quiz', state: null, options: null }]);
+    const getState = vi.fn().mockReturnValue({
+      activeTabId: 'tab-origin-1',
+      tabs: [{ id: 'tab-origin-1', url: 'https://quiz.example.edu/page?x=1', title: '', loading: false, canGoBack: false, canGoForward: false, error: null }],
+    });
+    setActiveBrowserHost({ clickElement: vi.fn().mockResolvedValue({ ok: true, role: 'button', label: 'Submit Quiz' }), getState } as never);
+    const requestConfirmation = vi.fn().mockResolvedValue(true);
+
+    await browserClickTool.run({ ref: el.ref }, ctx({ mode: 'ask', requestConfirmation }));
+
+    expect(requestConfirmation.mock.calls[0][1]).toContain('https://quiz.example.edu');
+  });
+
   it('passes a 24-hour timeout to the confirmation', async () => {
     const [el] = recordElements('tab-2', [{ role: 'button', label: 'Next', state: null, options: null }]);
     setActiveBrowserHost({ clickElement: vi.fn().mockResolvedValue({ ok: true, role: 'button', label: 'Next' }) } as never);
@@ -96,6 +110,20 @@ describe('browser_type', () => {
     expect(requestConfirmation.mock.calls[0][1]).toContain('Photosynthesis converts light into chemical energy.');
   });
 
+  it('names the target tab’s origin in the confirmation', async () => {
+    const [el] = recordElements('tab-origin-2', [{ role: 'text', label: 'Answer', state: '', options: null }]);
+    const getState = vi.fn().mockReturnValue({
+      activeTabId: 'tab-origin-2',
+      tabs: [{ id: 'tab-origin-2', url: 'https://forms.example.edu/quiz', title: '', loading: false, canGoBack: false, canGoForward: false, error: null }],
+    });
+    setActiveBrowserHost({ typeIntoElement: vi.fn().mockResolvedValue({ ok: true, role: 'text', label: 'Answer' }), getState } as never);
+    const requestConfirmation = vi.fn().mockResolvedValue(true);
+
+    await browserTypeTool.run({ ref: el.ref, text: 'X' }, ctx({ mode: 'ask', requestConfirmation }));
+
+    expect(requestConfirmation.mock.calls[0][1]).toContain('https://forms.example.edu');
+  });
+
   it('refuses empty text without a confirmation', async () => {
     const [el] = recordElements('tab-7', [{ role: 'text', label: 'Answer', state: '', options: null }]);
     const requestConfirmation = vi.fn();
@@ -130,6 +158,20 @@ describe('browser_select', () => {
     await browserSelectTool.run({ ref: el.ref, option: 'B) Mitochondria' }, ctx({ mode: 'ask', requestConfirmation }));
 
     expect(requestConfirmation.mock.calls[0][1]).toMatch(/B\) Mitochondria.*Question 3|Question 3.*B\) Mitochondria/);
+  });
+
+  it('names the target tab’s origin in the confirmation', async () => {
+    const [el] = recordElements('tab-origin-3', [{ role: 'select', label: 'Question 3', state: 'A) Nucleus', options: ['A) Nucleus', 'B) Mitochondria'] }]);
+    const getState = vi.fn().mockReturnValue({
+      activeTabId: 'tab-origin-3',
+      tabs: [{ id: 'tab-origin-3', url: 'https://quiz.example.edu/q3', title: '', loading: false, canGoBack: false, canGoForward: false, error: null }],
+    });
+    setActiveBrowserHost({ selectOption: vi.fn().mockResolvedValue({ ok: true, role: 'select', label: 'Question 3' }), getState } as never);
+    const requestConfirmation = vi.fn().mockResolvedValue(true);
+
+    await browserSelectTool.run({ ref: el.ref, option: 'B) Mitochondria' }, ctx({ mode: 'ask', requestConfirmation }));
+
+    expect(requestConfirmation.mock.calls[0][1]).toContain('https://quiz.example.edu');
   });
 
   it('reports the available options when the chosen text does not match any', async () => {

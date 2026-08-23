@@ -21,13 +21,13 @@ describe('browser_open_tab', () => {
     expect(resolveExecutionMode('SAFE_WRITE', 'auto')).toBe('auto');
   });
 
-  it('opens the given URL', async () => {
+  it('opens the given URL in the background (activate: false)', async () => {
     const openTab = vi.fn().mockReturnValue('t2');
     setActiveBrowserHost({ openTab } as never);
 
     await browserOpenTabTool.run({ url: 'https://example.edu/reference' }, ctx());
 
-    expect(openTab).toHaveBeenCalledWith('https://example.edu/reference');
+    expect(openTab).toHaveBeenCalledWith('https://example.edu/reference', false);
   });
 
   it('does NOT activate the tab (keeps user view unchanged)', async () => {
@@ -41,6 +41,7 @@ describe('browser_open_tab', () => {
 
     expect(activateTab).not.toHaveBeenCalled();
     expect(navigate).not.toHaveBeenCalled();
+    expect(openTab).toHaveBeenCalledWith('https://example.edu/reference', false);
   });
 
   it('names the URL in the confirmation before opening it', async () => {

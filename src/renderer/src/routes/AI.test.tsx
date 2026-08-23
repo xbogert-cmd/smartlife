@@ -42,6 +42,8 @@ function mockAi(apiKeyConfigured = true) {
       };
     }),
     respondToConfirm: vi.fn().mockResolvedValue(undefined),
+    getPendingConfirmation: vi.fn().mockResolvedValue(null),
+    onConfirmResolved: vi.fn((_cb: (id: string) => void) => () => {}),
     triggerConfirm: (req: { id: string; toolName: string; description: string }) => confirmCb?.(req),
   };
 }

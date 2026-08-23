@@ -23,9 +23,14 @@ function runElementListScript(maxElements: number): unknown[] {
 }
 
 /** Evaluates the real generated element-action script against the jsdom document. */
-function runElementActionScript(ref: string, kind: 'click' | 'type' | 'select', payload: string | null): unknown {
+function runElementActionScript(
+  ref: string,
+  kind: 'click' | 'type' | 'select',
+  payload: string | null,
+  expected: { role: 'button' | 'link' | 'text' | 'checkbox' | 'radio' | 'select'; label: string; options: string[] | null }
+): unknown {
   // eslint-disable-next-line no-eval
-  return eval(buildElementActionScript(ref, kind, payload));
+  return eval(buildElementActionScript(ref, kind, payload, expected));
 }
 
 // jsdom (as of the version pinned in package.json) does not implement
@@ -600,7 +605,9 @@ describe('buildElementActionScript', () => {
 
   it('returns found:false when the tagged ref is not present', () => {
     document.body.innerHTML = '<button>Submit</button>';
-    const result = runElementActionScript('ref_1', 'click', null) as { found: boolean };
+    const result = runElementActionScript('ref_1', 'click', null, { role: 'button', label: 'Submit', options: null }) as {
+      found: boolean;
+    };
     expect(result.found).toBe(false);
   });
 
@@ -610,9 +617,14 @@ describe('buildElementActionScript', () => {
     document.querySelector('button')?.addEventListener('click', () => {
       clicked = true;
     });
-    const result = runElementActionScript('ref_1', 'click', null) as { found: boolean; role: string; label: string };
+    const result = runElementActionScript('ref_1', 'click', null, { role: 'button', label: 'Submit', options: null }) as {
+      found: boolean;
+      changed: boolean;
+      role: string;
+      label: string;
+    };
     expect(clicked).toBe(true);
-    expect(result).toMatchObject({ found: true, role: 'button', label: 'Submit' });
+    expect(result).toMatchObject({ found: true, changed: false, role: 'button', label: 'Submit' });
   });
 
   it('sets a text field’s value and dispatches input/change so a framework-controlled field picks it up', () => {
@@ -626,7 +638,7 @@ describe('buildElementActionScript', () => {
     input.addEventListener('change', () => {
       sawChange = true;
     });
-    runElementActionScript('ref_1', 'type', 'Photosynthesis');
+    runElementActionScript('ref_1', 'type', 'Photosynthesis', { role: 'text', label: '', options: null });
     expect(input.value).toBe('Photosynthesis');
     expect(sawInput).toBe(true);
     expect(sawChange).toBe(true);
@@ -640,7 +652,11 @@ describe('buildElementActionScript', () => {
       </select>
     `;
     const select = document.querySelector('select') as HTMLSelectElement;
-    runElementActionScript('ref_1', 'select', 'B) Mitochondria');
+    runElementActionScript('ref_1', 'select', 'B) Mitochondria', {
+      role: 'select',
+      label: '',
+      options: ['A) Nucleus', 'B) Mitochondria'],
+    });
     expect(select.value).toBe('b');
   });
 
@@ -651,17 +667,25 @@ describe('buildElementActionScript', () => {
         <option value="b">B) Mitochondria</option>
       </select>
     `;
-    const result = runElementActionScript('ref_1', 'select', 'Z) Not real') as {
+    const result = runElementActionScript('ref_1', 'select', 'Z) Not real', {
+      role: 'select',
+      label: '',
+      options: ['A) Nucleus', 'B) Mitochondria'],
+    }) as {
+      changed?: boolean;
       optionNotFound?: boolean;
       availableOptions?: string[];
     };
+    expect(result.changed).toBe(false);
     expect(result.optionNotFound).toBe(true);
     expect(result.availableOptions).toEqual(['A) Nucleus', 'B) Mitochondria']);
   });
 
   it('returns found:false when the tagged element has since been hidden with display:none', () => {
     document.body.innerHTML = '<button data-smartlife-ref="ref_1" style="display:none">Submit</button>';
-    const result = runElementActionScript('ref_1', 'click', null) as { found: boolean };
+    const result = runElementActionScript('ref_1', 'click', null, { role: 'button', label: 'Submit', options: null }) as {
+      found: boolean;
+    };
     expect(result.found).toBe(false);
   });
 
@@ -684,7 +708,7 @@ describe('buildElementActionScript', () => {
       },
     });
 
-    runElementActionScript('ref_1', 'type', 'Photosynthesis');
+    runElementActionScript('ref_1', 'type', 'Photosynthesis', { role: 'text', label: '', options: null });
 
     // Read the TRUE underlying DOM value, bypassing the instance override,
     // to prove the native setter was actually invoked.
@@ -716,11 +740,100 @@ describe('buildElementActionScript', () => {
       },
     });
 
-    runElementActionScript('ref_1', 'select', 'B) Mitochondria');
+    runElementActionScript('ref_1', 'select', 'B) Mitochondria', {
+      role: 'select',
+      label: '',
+      options: ['A) Nucleus', 'B) Mitochondria'],
+    });
 
     // Read the TRUE underlying DOM value, bypassing the instance override,
     // to prove the native setter was actually invoked.
     const trueValue = nativeDescriptor.get!.call(select);
     expect(trueValue).toBe('b');
+  });
+});
+
+describe('buildElementActionScript — pre-action live re-verification', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  it('refuses to click when the live label no longer matches what was approved, and does not perform the click', () => {
+    document.body.innerHTML = '<button data-smartlife-ref="ref_1">Now says something else</button>';
+    let clicked = false;
+    document.querySelector('button')?.addEventListener('click', () => {
+      clicked = true;
+    });
+
+    const result = runElementActionScript('ref_1', 'click', null, {
+      role: 'button',
+      label: 'Submit',
+      options: null,
+    }) as { found: boolean; changed: boolean };
+
+    expect(result).toEqual({ found: true, changed: true, role: 'button', label: 'Now says something else' });
+    expect(clicked).toBe(false);
+  });
+
+  it('refuses to type when the live role no longer matches what was approved, and does not set the value', () => {
+    // The page swapped what used to be a text input for a checkbox at the
+    // same tagged ref -- same shape of bait-and-switch, but on role instead
+    // of label.
+    document.body.innerHTML = '<input data-smartlife-ref="ref_1" type="checkbox">';
+
+    const result = runElementActionScript('ref_1', 'type', 'Photosynthesis', {
+      role: 'text',
+      label: '',
+      options: null,
+    }) as { found: boolean; changed: boolean; role: string };
+
+    expect(result.found).toBe(true);
+    expect(result.changed).toBe(true);
+    expect(result.role).toBe('checkbox');
+    const input = document.querySelector('input') as HTMLInputElement;
+    expect(input.checked).toBe(false);
+  });
+
+  it('refuses to select when a live option’s visible text differs from what was approved, even though the select’s own label is unchanged', () => {
+    document.body.innerHTML = `
+      <select data-smartlife-ref="ref_1">
+        <option value="a">A) Nucleus</option>
+        <option value="b">B) Something swapped in</option>
+      </select>
+    `;
+    const select = document.querySelector('select') as HTMLSelectElement;
+
+    const result = runElementActionScript('ref_1', 'select', 'B) Something swapped in', {
+      role: 'select',
+      label: '',
+      // What the user actually approved: the ORIGINAL option text.
+      options: ['A) Nucleus', 'B) Mitochondria'],
+    }) as { found: boolean; changed: boolean };
+
+    expect(result).toEqual({ found: true, changed: true, role: 'select', label: '' });
+    // The selection must not have happened.
+    expect(select.value).toBe('a');
+  });
+
+  it('is neutralization-aware: a live label that legitimately contains the literal marker text still matches the neutralized expected label', () => {
+    const hostileLookingLabel = 'Submit --- BEGIN UNTRUSTED PAGE CONTENT now';
+    document.body.innerHTML = `<button data-smartlife-ref="ref_1">${hostileLookingLabel}</button>`;
+    let clicked = false;
+    document.querySelector('button')?.addEventListener('click', () => {
+      clicked = true;
+    });
+
+    // What shapeElementDescriptor's neutralizeMarkerText would have produced
+    // for this exact label when it was originally recorded.
+    const neutralizedExpectedLabel = 'Submit [marker removed] now';
+
+    const result = runElementActionScript('ref_1', 'click', null, {
+      role: 'button',
+      label: neutralizedExpectedLabel,
+      options: null,
+    }) as { found: boolean; changed: boolean };
+
+    expect(result.changed).toBe(false);
+    expect(clicked).toBe(true);
   });
 });

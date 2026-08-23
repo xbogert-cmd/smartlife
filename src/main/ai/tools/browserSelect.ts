@@ -1,6 +1,6 @@
 import type { ToolDefinition } from './types';
 import { gate } from '../permissions';
-import { getActiveBrowserHost } from '../../browser/hostRegistry';
+import { getActiveBrowserHost, originForTab } from '../../browser/hostRegistry';
 import { resolveElement } from '../../browser/refs';
 
 const CONFIRMATION_TIMEOUT_MS = 24 * 60 * 60 * 1000;
@@ -31,11 +31,13 @@ export const browserSelectTool: ToolDefinition = {
       return 'That element reference is no longer valid — call browser_list_actionable_elements again and use a fresh ref.';
     }
 
+    const origin = originForTab(target.tabId);
+    const prefix = origin.length > 0 ? `On ${origin}: ` : '';
     const approved = await gate(
       'ALWAYS_CONFIRM',
       ctx.mode,
       'browser_select',
-      `Choose "${option}" from the dropdown labeled "${target.label}".`,
+      `${prefix}Choose "${option}" from the dropdown labeled "${target.label}".`,
       ctx.requestConfirmation,
       CONFIRMATION_TIMEOUT_MS
     );

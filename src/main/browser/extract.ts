@@ -98,11 +98,18 @@ export interface RawElementDescriptor {
  * is what lets performElementAction's `if (!result.found) return ...` in
  * view.ts actually narrow result.role/result.label to required strings
  * afterward, instead of leaving them typed string | undefined.
+ *
+ * `changed` distinguishes "the pre-action comparison passed and the action
+ * ran" (false) from "the comparison failed and the action was refused,
+ * never touching the page" (true). See buildElementActionScript below --
+ * the comparison happens BEFORE the click/type/select, in the same script
+ * execution, so `changed: true` is a guarantee nothing happened.
  */
 export type RawActionResult =
   | { found: false }
   | {
       found: true;
+      changed: boolean;
       role: 'button' | 'link' | 'text' | 'checkbox' | 'radio' | 'select';
       label: string;
       optionNotFound?: boolean;
@@ -139,20 +146,40 @@ export function buildElementListScript(maxElements: number): string {
 
 /**
  * Re-locates the element tagged with the given ref (assigned by a prior
- * buildElementListScript call) and performs one action against it, after
- * re-deriving its current role/label so the caller can verify nothing
- * changed since the ref was issued.
+ * buildElementListScript call), re-derives its current role/label/options,
+ * and compares them against `expected` (what the user actually approved,
+ * sourced from the ref registry) BEFORE performing the action.
+ *
+ * This comparison must happen here, in-page, in the same synchronous script
+ * execution as the read -- not back in view.ts after executeJavaScript
+ * resolves. Doing it there would mean the click/type/select already
+ * happened by the time the mismatch is detected: too late to refuse it.
+ *
+ * `expected.label`/`expected.options` were neutralised (marker text
+ * stripped) when originally recorded by shapeElementDescriptor. The
+ * live-derived label/options are neutralised the same way here, right
+ * before comparing, so an element whose real label legitimately contains
+ * the literal marker text does not spuriously compare as "changed".
  */
 export function buildElementActionScript(
   ref: string,
   kind: 'click' | 'type' | 'select',
-  payload: string | null
+  payload: string | null,
+  expected: { role: RawElementDescriptor['role']; label: string; options: string[] | null }
 ): string {
   const refLiteral = JSON.stringify(ref);
   const payloadLiteral = JSON.stringify(payload ?? '');
+  const expectedRoleLiteral = JSON.stringify(expected.role);
+  const expectedLabelLiteral = JSON.stringify(expected.label);
+  const expectedOptionsLiteral = JSON.stringify(expected.options);
+  const baseBeginLiteral = JSON.stringify(BASE_BEGIN);
+  const baseEndLiteral = JSON.stringify(BASE_END);
   return `(function () {
   ${VISIBILITY_CHECK_JS}
   ${DESCRIBE_ELEMENT_JS}
+  function neutralize(text) {
+    return text.split(${baseBeginLiteral}).join('[marker removed]').split(${baseEndLiteral}).join('[marker removed]');
+  }
   var el = document.querySelector('[data-smartlife-ref="' + ${refLiteral}.replace(/"/g, '') + '"]');
   if (!el) return { found: false };
   // Treat "found but no longer visible" the same as "not found" -- the user
@@ -162,6 +189,17 @@ export function buildElementActionScript(
   if (!isVisible(el)) return { found: false };
   var described = describeElement(el);
   if (!described) return { found: false };
+  var liveLabel = neutralize(described.label);
+  var roleChanged = described.role !== ${expectedRoleLiteral};
+  var labelChanged = liveLabel !== ${expectedLabelLiteral};
+  var optionsChanged = false;
+  if (described.role === 'select') {
+    var liveOptions = (described.options || []).map(neutralize);
+    optionsChanged = JSON.stringify(liveOptions) !== JSON.stringify(${expectedOptionsLiteral});
+  }
+  if (roleChanged || labelChanged || optionsChanged) {
+    return { found: true, changed: true, role: described.role, label: liveLabel };
+  }
   var kind = ${JSON.stringify(kind)};
   var payload = ${payloadLiteral};
   if (kind === 'click') {
@@ -189,7 +227,7 @@ export function buildElementActionScript(
     }
     if (!match) {
       var available = Array.prototype.map.call(el.options, function (o) { return o.textContent.trim(); });
-      return { found: true, role: described.role, label: described.label, optionNotFound: true, availableOptions: available };
+      return { found: true, changed: false, role: described.role, label: liveLabel, optionNotFound: true, availableOptions: available };
     }
     // Same React-controlled-element problem as the 'type' branch above:
     // HTMLSelectElement.prototype.value's native setter is overridden the
@@ -199,7 +237,7 @@ export function buildElementActionScript(
     nativeSelectSetter.call(el, match.value);
     el.dispatchEvent(new Event('change', { bubbles: true }));
   }
-  return { found: true, role: described.role, label: described.label };
+  return { found: true, changed: false, role: described.role, label: liveLabel };
 })()`;
 }
 

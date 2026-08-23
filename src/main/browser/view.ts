@@ -63,7 +63,7 @@ export interface BrowserHostOptions {
 
 export interface BrowserHost {
   getState(): TabState;
-  openTab(url: string): string;
+  openTab(url: string, activate?: boolean): string;
   closeTab(id: string): void;
   activateTab(id: string): void;
   navigate(id: string, input: string): void;
@@ -323,9 +323,9 @@ export function createBrowserHost(options: BrowserHostOptions): BrowserHost {
     return views.get(id ?? state.activeTabId)?.webContents ?? null;
   }
 
-  function openTab(url: string): string {
+  function openTab(url: string, activate?: boolean): string {
     const id = nextId();
-    dispatch({ type: 'open', id, url });
+    dispatch({ type: 'open', id, url, activate });
     return id;
   }
 
@@ -343,7 +343,11 @@ export function createBrowserHost(options: BrowserHostOptions): BrowserHost {
     let result: RawActionResult;
     try {
       result = (await contents.executeJavaScript(
-        buildElementActionScript(ref, kind, payload),
+        buildElementActionScript(ref, kind, payload, {
+          role: stored.role,
+          label: stored.label,
+          options: stored.options,
+        }),
         true
       )) as RawActionResult;
     } catch (error) {
@@ -352,13 +356,13 @@ export function createBrowserHost(options: BrowserHostOptions): BrowserHost {
     }
 
     if (!result.found) return { ok: false, reason: 'changed' };
-    // Re-verified against the LIVE page, not the registry's recollection of
-    // it -- this is what catches a single-page app that mutated the element
-    // (or replaced it with something else at the same tag) since the ref
-    // was issued, which invalidateTab's navigation hook cannot see at all.
-    if (result.role !== stored.role || result.label !== stored.label) {
-      return { ok: false, reason: 'changed' };
-    }
+    // The role/label/options comparison against the registry's recollection
+    // already ran in-page, BEFORE the action -- this is what catches a
+    // single-page app that mutated the element (or replaced it with
+    // something else at the same tag) since the ref was issued, which
+    // invalidateTab's navigation hook cannot see at all. `changed: true`
+    // here means the comparison failed and the action never ran.
+    if (result.changed) return { ok: false, reason: 'changed' };
     if (kind === 'select' && result.optionNotFound) {
       return { ok: false, reason: 'no-such-option', available: result.availableOptions ?? [] };
     }
@@ -372,7 +376,14 @@ export function createBrowserHost(options: BrowserHostOptions): BrowserHost {
   return {
     getState: () => state,
     openTab,
-    closeTab: (id) => dispatch({ type: 'close', id, blankId: nextId() }),
+    closeTab: (id) => {
+      // Otherwise a closed tab's refs sit in the registry's maps until
+      // process exit -- low severity (ids never reuse, and
+      // performElementAction already degrades safely on a stale ref via the
+      // views.get miss below) but a one-line leak fix while we're in here.
+      invalidateTab(id);
+      dispatch({ type: 'close', id, blankId: nextId() });
+    },
     activateTab: (id) => dispatch({ type: 'activate', id }),
 
     navigate(id, input) {
