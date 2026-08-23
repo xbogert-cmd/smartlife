@@ -9,6 +9,7 @@ import { getProvider } from './router';
 import type { ToolContext } from './tools/types';
 import type { AIProvider, StreamEvent } from './providers/types';
 import { buildSystemPrompt, type ViewContext } from './viewContext';
+import { notifyIfUnfocused } from '../notify';
 
 // ponytail: single in-flight flag, only one conversation exists app-wide today.
 // Upgrade to a Set keyed by conversation id if multi-conversation support lands.
@@ -54,6 +55,7 @@ export async function handleSendMessage(
         // user to ever approve — resolve as declined instead of parking the promise
         // forever in confirmations.ts's pending map.
         if (!getWindow()) return Promise.resolve(false);
+        notifyIfUnfocused(getWindow(), 'SmartLife needs your approval', description);
         return requestToolConfirmation(
           (payload) => getWindow()?.webContents.send('ai:confirm-request', payload),
           toolName,
