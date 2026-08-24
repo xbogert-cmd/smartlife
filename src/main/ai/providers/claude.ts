@@ -36,13 +36,7 @@ export function describeError(error: unknown): string | null {
  * no business knowing about.
  */
 export function createClaudeProvider(apiKey: string, model: string): AIProvider {
-  // This code only ever runs in the Electron main process, which never has a
-  // `window`/`document`/`navigator` global -- but the repo's vitest config
-  // runs every test (main and renderer alike) under a jsdom environment,
-  // which does provide those globals and trips the SDK's browser-credential
-  // guard on construction. The guard exists to stop this key from being
-  // bundled into a page served to a browser, which cannot happen here.
-  const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true });
+  const client = new Anthropic({ apiKey });
 
   return {
     async streamTurn({ system, history, userText, tools, ctx, onEvent }) {

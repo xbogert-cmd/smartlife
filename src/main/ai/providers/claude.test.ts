@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import { APIError } from '@anthropic-ai/sdk';
 import { describeError } from './claude';
