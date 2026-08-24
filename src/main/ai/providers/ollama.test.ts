@@ -114,7 +114,54 @@ describe('createOllamaProvider', () => {
 
     expect(result).toEqual([{ type: 'text', text: 'It is sunny.' }]);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    const secondCallBody = JSON.parse((fetchMock.mock.calls[1][1] as RequestInit).body as string);
+    expect(secondCallBody.messages).toContainEqual({ role: 'tool', content: 'Sunny, 72F', tool_name: 'get_weather' });
     expect(onEvent).toHaveBeenCalledWith({ type: 'tool-status', toolName: 'get_weather', toolLabel: 'Get weather' });
+  });
+
+  it('correctly reassembles an NDJSON line that arrives split across two stream reads', async () => {
+    // Deliberately split a single JSON line mid-object, across two enqueued
+    // chunks, to force the reader to receive it over two separate read()
+    // calls -- proving the partial-line buffering logic actually works,
+    // not just that a single-chunk Response happens to parse fine.
+    const fullLine = JSON.stringify({ message: { role: 'assistant', content: 'Hello!' }, done: true }) + '\n';
+    const splitPoint = Math.floor(fullLine.length / 2);
+    const firstHalf = fullLine.slice(0, splitPoint);
+    const secondHalf = fullLine.slice(splitPoint);
+
+    // A `pull` callback (rather than enqueuing both chunks in `start`) is
+    // required here: some ReadableStream/fetch implementations coalesce
+    // chunks enqueued synchronously in `start` into a single reader.read(),
+    // which would defeat the point of this test. `pull` is invoked once per
+    // reader.read() call, so returning one chunk per pull genuinely forces
+    // two separate reads.
+    let chunksSent = 0;
+    const chunks = [firstHalf, secondHalf].map((half) => new TextEncoder().encode(half));
+    const stream = new ReadableStream({
+      pull(controller) {
+        if (chunksSent < chunks.length) {
+          controller.enqueue(chunks[chunksSent]);
+          chunksSent++;
+        } else {
+          controller.close();
+        }
+      },
+    });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(stream, { status: 200 })));
+
+    const provider = createOllamaProvider('http://localhost:11434', 'llama3.1');
+    const onEvent = vi.fn();
+    const result = await provider.streamTurn({
+      system: 's',
+      history: [],
+      userText: 'hi',
+      tools: [],
+      ctx: fakeCtx(),
+      onEvent,
+    });
+
+    expect(result).toEqual([{ type: 'text', text: 'Hello!' }]);
+    expect(onEvent).toHaveBeenCalledWith({ type: 'text-delta', text: 'Hello!' });
   });
 
   it('throws a clear ProviderError when Ollama is not reachable', async () => {
