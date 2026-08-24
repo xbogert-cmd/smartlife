@@ -110,6 +110,27 @@ describe('createFallbackProvider', () => {
     expect(pricier.streamTurn).not.toHaveBeenCalled();
   });
 
+  it('keeps the cost-rank ceiling fixed at the starting entry across multiple hops, not ratcheting down further with each failure', async () => {
+    const cheapest = fakeProvider('fail'); // rank 1, tried first by array order
+    const midTier = fakeProvider('succeed', 'from mid tier'); // rank 3, untried and unfailed
+    const pricier = fakeProvider('fail'); // rank 5, the pinned start -- must fail so the turn hops away from it
+    const entries: RankedEntry[] = [
+      { providerId: 'ollama', model: 'llama3.1', displayName: 'Llama 3.1', costRank: 1, provider: cheapest },
+      { providerId: 'anthropic', model: 'sonnet', displayName: 'Sonnet', costRank: 3, provider: midTier },
+      { providerId: 'anthropic', model: 'opus', displayName: 'Opus', costRank: 5, provider: pricier },
+    ];
+    // Pinned start at Opus (costRank 5) -- so the ceiling for the WHOLE turn
+    // should stay 5, even after hopping down to and failing at the cheapest
+    // entry (costRank 1). If the ceiling incorrectly ratcheted to the
+    // just-failed entry's own rank (1) instead of staying fixed at the
+    // original start's rank (5), Sonnet (costRank 3, still <= 5) would be
+    // wrongly excluded and this would throw instead of succeeding.
+    const fallback = createFallbackProvider(entries, { pinned: { providerId: 'anthropic', model: 'opus' } });
+    const result = await fallback.streamTurn(baseParams());
+    expect(result).toEqual([{ type: 'text', text: 'from mid tier' }]);
+    expect(pricier.streamTurn).toHaveBeenCalledTimes(1);
+  });
+
   it('throws a clear error and calls nothing when the entry list is empty', async () => {
     const fallback = createFallbackProvider([]);
     await expect(fallback.streamTurn(baseParams())).rejects.toThrow(/No AI provider is configured/);

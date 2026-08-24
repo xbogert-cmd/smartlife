@@ -69,7 +69,7 @@ export function createFallbackProvider(entries: RankedEntry[], options: Fallback
           return await current.provider.streamTurn(params);
         } catch (error) {
           failed.add(key(current));
-          const next = nextCandidate(current.costRank, triedThisTurn);
+          const next = nextCandidate(start.costRank, triedThisTurn);
           if (!next) {
             const triedNames = [...triedThisTurn]
               .map((k) => entries.find((e) => key(e) === k)?.displayName ?? k)
