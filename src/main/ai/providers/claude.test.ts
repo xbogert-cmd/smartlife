@@ -24,3 +24,12 @@ describe('describeError', () => {
     expect(describeError(error)).toBeNull();
   });
 });
+
+import { createClaudeProvider } from './claude';
+
+describe('createClaudeProvider', () => {
+  it('returns a provider with a streamTurn function', () => {
+    const provider = createClaudeProvider('sk-ant-test', 'claude-sonnet-5');
+    expect(typeof provider.streamTurn).toBe('function');
+  });
+});

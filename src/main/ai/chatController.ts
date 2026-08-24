@@ -1,17 +1,15 @@
 import type { BrowserWindow } from 'electron';
 import type Database from 'better-sqlite3';
-import { getStoredApiKey } from './apiKey';
 import { getAiMode } from './mode';
 import { getOrCreateConversationId, appendMessage, getMessages } from './conversation';
 import { requestConfirmation as requestToolConfirmation } from './confirmations';
 import { TOOLS } from './tools/registry';
 import { getProvider } from './router';
 import type { ToolContext } from './tools/types';
-import type { AIProvider, StreamEvent } from './providers/types';
+import { ProviderError, type AIProvider, type StreamEvent } from './providers/types';
 import { buildSystemPrompt, type ViewContext } from './viewContext';
 import { notifyIfUnfocused } from '../notify';
 import { logError } from '../log';
-import { ProviderError } from './providers/types';
 
 // ponytail: single in-flight flag, only one conversation exists app-wide today.
 // Upgrade to a Set keyed by conversation id if multi-conversation support lands.
@@ -22,19 +20,12 @@ export async function handleSendMessage(
   getWindow: () => BrowserWindow | null,
   userText: string,
   view: ViewContext | null,
-  provider: AIProvider = getProvider()
+  provider: AIProvider = getProvider(db)
 ): Promise<void> {
   const send = (event: StreamEvent): void => getWindow()?.webContents.send('ai:stream-event', event);
 
   if (turnInFlight) {
     send({ type: 'text-delta', text: 'Still working on the last message — try again in a moment.' });
-    send({ type: 'turn-complete' });
-    return;
-  }
-
-  const apiKey = getStoredApiKey(db);
-  if (!apiKey) {
-    send({ type: 'text-delta', text: 'No API key configured — add one in Settings.' });
     send({ type: 'turn-complete' });
     return;
   }
@@ -69,7 +60,6 @@ export async function handleSendMessage(
 
     try {
       const finalContent = await provider.streamTurn({
-        apiKey,
         system: buildSystemPrompt(db, view),
         history,
         userText,
@@ -78,7 +68,7 @@ export async function handleSendMessage(
         onEvent: send,
       });
       appendMessage(db, conversationId, 'user', [{ type: 'text', text: userText }]);
-      appendMessage(db, conversationId, 'assistant', finalContent as unknown[]);
+      appendMessage(db, conversationId, 'assistant', finalContent);
     } catch (error) {
       // Every other main-process error path (browser, sync, downloads) is
       // persisted via logError so it survives past the session that hit it --

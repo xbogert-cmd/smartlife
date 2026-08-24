@@ -1,9 +1,18 @@
 import Anthropic, { APIError } from '@anthropic-ai/sdk';
 import { betaTool } from '@anthropic-ai/sdk/helpers/beta/json-schema';
 import type { ToolContext, ToolDefinition } from '../tools/types';
-import { ProviderError, type AIProvider, type StreamEvent } from './types';
+import { ProviderError, type AIProvider, type CanonicalTextBlock, type StreamEvent } from './types';
 
-const MODEL = 'claude-sonnet-5';
+function toBetaTools(tools: ToolDefinition[], ctx: ToolContext) {
+  return tools.map((tool) =>
+    betaTool({
+      name: tool.schema.name,
+      description: tool.schema.description,
+      inputSchema: tool.schema.input_schema as { type: 'object'; [key: string]: unknown },
+      run: async (input: Record<string, unknown>) => tool.run(input, ctx),
+    })
+  );
+}
 
 /**
  * The SDK's own Error.message is the raw response JSON stringified (its
@@ -19,65 +28,64 @@ export function describeError(error: unknown): string | null {
   return typeof message === 'string' ? message : null;
 }
 
-function toBetaTools(tools: ToolDefinition[], ctx: ToolContext) {
-  return tools.map((tool) =>
-    betaTool({
-      name: tool.schema.name,
-      description: tool.schema.description,
-      // ToolSchema.input_schema is typed as a loose Record by Task 4; betaTool's helper
-      // requires a JSON Schema literal with `type: 'object'` to infer parameter types,
-      // which the app-level ToolSchema type doesn't encode. Our tool inputs are always
-      // plain objects at runtime, so this cast is safe.
-      inputSchema: tool.schema.input_schema as { type: 'object'; [key: string]: unknown },
-      run: async (input: Record<string, unknown>) => tool.run(input, ctx),
-    })
-  );
-}
+/**
+ * `apiKey` and `model` are fixed at construction, not passed per-call -- a
+ * ranked fallback list can hold more than one Claude entry at different
+ * models, each needing its own provider instance, and every other provider
+ * needs a differently-shaped credential the generic AIProvider interface has
+ * no business knowing about.
+ */
+export function createClaudeProvider(apiKey: string, model: string): AIProvider {
+  // This code only ever runs in the Electron main process, which never has a
+  // `window`/`document`/`navigator` global -- but the repo's vitest config
+  // runs every test (main and renderer alike) under a jsdom environment,
+  // which does provide those globals and trips the SDK's browser-credential
+  // guard on construction. The guard exists to stop this key from being
+  // bundled into a page served to a browser, which cannot happen here.
+  const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true });
 
-export const claudeProvider: AIProvider = {
-  async streamTurn({ apiKey, system, history, userText, tools, ctx, onEvent }) {
-    const client = new Anthropic({ apiKey });
-    const toolLabels = new Map(tools.map((tool) => [tool.schema.name, tool.label]));
+  return {
+    async streamTurn({ system, history, userText, tools, ctx, onEvent }) {
+      const toolLabels = new Map(tools.map((tool) => [tool.schema.name, tool.label]));
 
-    // TurnMessage.content is `unknown` (it round-trips through JSON storage in
-    // conversation.ts); the tool runner's params expect the SDK's own
-    // BetaMessageParam content shape (string | content-block array), which is
-    // exactly what's stored there at runtime. Cast through `unknown` since
-    // TypeScript can't see that relationship across the module boundary.
-    const messages = [...history, { role: 'user' as const, content: userText }] as unknown as Anthropic.Beta.Messages.BetaMessageParam[];
+      const messages = [...history, { role: 'user' as const, content: userText }] as unknown as Anthropic.Beta.Messages.BetaMessageParam[];
 
-    const runner = client.beta.messages.toolRunner({
-      model: MODEL,
-      max_tokens: 4096,
-      system,
-      tools: toBetaTools(tools, ctx),
-      messages,
-      stream: true,
-    });
+      const runner = client.beta.messages.toolRunner({
+        model,
+        max_tokens: 4096,
+        system,
+        tools: toBetaTools(tools, ctx),
+        messages,
+        stream: true,
+      });
 
-    let finalContent: unknown = [{ type: 'text', text: '' }];
+      let finalText = '';
 
-    try {
-      for await (const messageStream of runner) {
-        for await (const event of messageStream) {
-          if (event.type === 'content_block_start' && event.content_block.type === 'tool_use') {
-            const toolName = event.content_block.name;
-            const toolLabel = toolLabels.get(toolName) ?? toolName;
-            onEvent({ type: 'tool-status', toolName, toolLabel } satisfies StreamEvent);
+      try {
+        for await (const messageStream of runner) {
+          for await (const event of messageStream) {
+            if (event.type === 'content_block_start' && event.content_block.type === 'tool_use') {
+              const toolName = event.content_block.name;
+              const toolLabel = toolLabels.get(toolName) ?? toolName;
+              onEvent({ type: 'tool-status', toolName, toolLabel } satisfies StreamEvent);
+            }
+            if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+              onEvent({ type: 'text-delta', text: event.delta.text } satisfies StreamEvent);
+            }
           }
-          if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
-            onEvent({ type: 'text-delta', text: event.delta.text } satisfies StreamEvent);
-          }
+          const finalMessage = await messageStream.finalMessage();
+          finalText = finalMessage.content
+            .filter((block): block is Anthropic.Beta.Messages.BetaTextBlock => block.type === 'text')
+            .map((block) => block.text)
+            .join('');
         }
-        const finalMessage = await messageStream.finalMessage();
-        finalContent = finalMessage.content;
+      } catch (error) {
+        const message = describeError(error);
+        throw message !== null ? new ProviderError(message) : error;
       }
-    } catch (error) {
-      const message = describeError(error);
-      throw message !== null ? new ProviderError(message) : error;
-    }
 
-    onEvent({ type: 'turn-complete' } satisfies StreamEvent);
-    return finalContent;
-  },
-};
+      onEvent({ type: 'turn-complete' } satisfies StreamEvent);
+      return [{ type: 'text', text: finalText }] satisfies CanonicalTextBlock[];
+    },
+  };
+}

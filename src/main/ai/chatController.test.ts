@@ -58,14 +58,14 @@ function fakeWindow() {
 }
 
 describe('handleSendMessage', () => {
-  it('shows a configuration prompt and never calls the provider when no API key is stored', async () => {
+  it('shows a configuration prompt and never persists messages when no API key is stored', async () => {
     const { handleSendMessage } = await import('./chatController');
     const db = makeDb();
     const window = fakeWindow();
-    const provider: AIProvider = { streamTurn: vi.fn() };
-    await handleSendMessage(db, () => window as never, 'hello', null, provider);
-    expect(provider.streamTurn).not.toHaveBeenCalled();
+    await handleSendMessage(db, () => window as never, 'hello', null);
     expect(window.sent.some((s) => JSON.stringify(s.payload).includes('Settings'))).toBe(true);
+    const count = db.prepare('select count(*) as count from ai_messages').get() as { count: number };
+    expect(count.count).toBe(0);
   });
 
   it('persists the user message and the final assistant message on success', async () => {
