@@ -100,3 +100,41 @@ describe('useConversation — pending confirmation recovery', () => {
     await waitFor(() => expect(result.current.pendingConfirm).toBeNull());
   });
 });
+
+describe('useConversation — provider-switched stream event', () => {
+  it('starts a fresh message for the new provider instead of appending to the failed provider’s partial text', async () => {
+    const { result } = renderHook(() => useConversation());
+    await waitFor(() => expect(ai.getPendingConfirmation).toHaveBeenCalled());
+    const onEvent = ai.onStreamEvent.mock.calls[0][0] as (event: unknown) => void;
+
+    // Provider A streams partial text -- accumulates into one message.
+    onEvent({ type: 'text-delta', text: 'Hello, I' });
+    onEvent({ type: 'text-delta', text: 'm working on' });
+
+    await waitFor(() => {
+      const assistantMessages = result.current.messages.filter((m) => m.role === 'assistant');
+      expect(assistantMessages).toHaveLength(1);
+      expect(assistantMessages[0].text).toBe('Hello, Im working on');
+    });
+
+    // Provider A fails; FallbackProvider switches to Provider B.
+    onEvent({ type: 'provider-switched', from: 'Claude Sonnet 5', to: 'Gemini Flash', reason: 'credit balance too low' });
+
+    await waitFor(() => {
+      const switchNotices = result.current.messages.filter((m) => m.kind === 'switch-notice');
+      expect(switchNotices).toHaveLength(1);
+      expect(switchNotices[0].text).toContain('Gemini Flash');
+    });
+
+    // Provider B streams its own fresh answer -- this must land in a NEW
+    // message, not get appended onto Provider A's partial text.
+    onEvent({ type: 'text-delta', text: 'I can help with that.' });
+
+    await waitFor(() => {
+      const assistantMessages = result.current.messages.filter((m) => m.role === 'assistant' && m.kind !== 'switch-notice');
+      expect(assistantMessages).toHaveLength(2);
+      expect(assistantMessages[0].text).toBe('Hello, Im working on');
+      expect(assistantMessages[1].text).toBe('I can help with that.');
+    });
+  });
+});
