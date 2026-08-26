@@ -1,16 +1,50 @@
 import Anthropic, { APIError } from '@anthropic-ai/sdk';
 import { betaTool } from '@anthropic-ai/sdk/helpers/beta/json-schema';
 import type { ToolContext, ToolDefinition } from '../tools/types';
+import { findCatalogEntry } from './catalog';
 import { ProviderError, type AIProvider, type CanonicalTextBlock, type StreamEvent } from './types';
 
-function toBetaTools(tools: ToolDefinition[], ctx: ToolContext) {
-  return tools.map((tool) =>
-    betaTool({
-      name: tool.schema.name,
-      description: tool.schema.description,
-      inputSchema: tool.schema.input_schema as { type: 'object'; [key: string]: unknown },
-      run: async (input: Record<string, unknown>) => tool.run(input, ctx),
-    })
+export function toBetaTools(tools: ToolDefinition[], ctx: ToolContext, visionCapable: boolean) {
+  return tools
+    .filter((tool) => visionCapable || tool.schema.name !== 'browser_screenshot')
+    .map((tool) =>
+      betaTool({
+        name: tool.schema.name,
+        description: tool.schema.description,
+        inputSchema: tool.schema.input_schema as { type: 'object'; [key: string]: unknown },
+        run: async (input: Record<string, unknown>) => {
+          const text = await tool.run(input, ctx);
+          const pending = ctx.pendingImages ?? [];
+          if (pending.length === 0) return text;
+          const images = pending.splice(0, pending.length);
+          return [
+            { type: 'text' as const, text },
+            ...images.map((image) => ({
+              type: 'image' as const,
+              source: {
+                type: 'base64' as const,
+                media_type: image.mimeType as 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp',
+                data: image.data,
+              },
+            })),
+          ];
+        },
+      })
+    );
+}
+
+function toAnthropicContentBlocks(attachments: import('./types').CanonicalContentBlock[]) {
+  return attachments.map((block) =>
+    block.type === 'text'
+      ? { type: 'text' as const, text: block.text }
+      : {
+          type: 'image' as const,
+          source: {
+            type: 'base64' as const,
+            media_type: block.mimeType as 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp',
+            data: block.data,
+          },
+        }
   );
 }
 
@@ -39,16 +73,30 @@ export function createClaudeProvider(apiKey: string, model: string): AIProvider 
   const client = new Anthropic({ apiKey });
 
   return {
-    async streamTurn({ system, history, userText, tools, ctx, onEvent }) {
-      const toolLabels = new Map(tools.map((tool) => [tool.schema.name, tool.label]));
+    async streamTurn({ system, history, userText, attachments, tools, ctx, onEvent }) {
+      if (ctx.pendingImages) ctx.pendingImages.length = 0;
 
-      const messages = [...history, { role: 'user' as const, content: userText }] as unknown as Anthropic.Beta.Messages.BetaMessageParam[];
+      const toolLabels = new Map(tools.map((tool) => [tool.schema.name, tool.label]));
+      const visionCapable = findCatalogEntry('anthropic', model)?.supportsVision ?? false;
+      const webSearchCapable = findCatalogEntry('anthropic', model)?.supportsWebSearch ?? false;
+
+      const userContent =
+        attachments && attachments.length > 0
+          ? [{ type: 'text' as const, text: userText }, ...toAnthropicContentBlocks(attachments)]
+          : userText;
+
+      const messages = [...history, { role: 'user' as const, content: userContent }] as unknown as Anthropic.Beta.Messages.BetaMessageParam[];
+
+      const runnerTools: Array<ReturnType<typeof betaTool> | { type: 'web_search_20260209'; name: 'web_search' }> = [
+        ...toBetaTools(tools, ctx, visionCapable),
+      ];
+      if (webSearchCapable) runnerTools.push({ type: 'web_search_20260209', name: 'web_search' });
 
       const runner = client.beta.messages.toolRunner({
         model,
         max_tokens: 4096,
         system,
-        tools: toBetaTools(tools, ctx),
+        tools: runnerTools,
         messages,
         stream: true,
       });

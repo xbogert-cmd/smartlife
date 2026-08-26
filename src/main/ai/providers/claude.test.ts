@@ -1,7 +1,24 @@
 // @vitest-environment node
-import { describe, expect, it } from 'vitest';
-import { APIError } from '@anthropic-ai/sdk';
-import { describeError } from './claude';
+import { describe, expect, it, vi } from 'vitest';
+import Anthropic, { APIError } from '@anthropic-ai/sdk';
+import { createClaudeProvider, describeError, toBetaTools } from './claude';
+
+vi.mock('@anthropic-ai/sdk', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@anthropic-ai/sdk')>();
+  return { ...actual, default: vi.fn() };
+});
+
+function fakeCtx() {
+  return { db: {} as never, conversationId: 'c1', mode: 'ask' as const, requestConfirmation: vi.fn() };
+}
+
+/** An empty async-iterable runner -- the streamTurn `for await` loop body
+ *  never executes, finalText stays '', and streamTurn resolves cleanly.
+ *  Enough to inspect what was PASSED to toolRunner without simulating the
+ *  SDK's real streaming/tool-call machinery. */
+function emptyRunner() {
+  return (async function* () {})();
+}
 
 describe('describeError', () => {
   it('extracts the nested message from a real Anthropic API error shape', () => {
@@ -26,11 +43,150 @@ describe('describeError', () => {
   });
 });
 
-import { createClaudeProvider } from './claude';
-
 describe('createClaudeProvider', () => {
   it('returns a provider with a streamTurn function', () => {
     const provider = createClaudeProvider('sk-ant-test', 'claude-sonnet-5');
     expect(typeof provider.streamTurn).toBe('function');
+  });
+});
+
+describe('web search capability', () => {
+  it('adds the hosted web_search tool for a model whose catalog entry supports it', async () => {
+    const toolRunner = vi.fn().mockReturnValue(emptyRunner());
+    vi.mocked(Anthropic).mockReturnValue({ beta: { messages: { toolRunner } } } as never);
+
+    const provider = createClaudeProvider('sk-ant-test', 'claude-sonnet-5');
+    await provider.streamTurn({ system: 's', history: [], userText: 'hi', tools: [], ctx: fakeCtx(), onEvent: vi.fn() });
+
+    const passedTools = toolRunner.mock.calls[0][0].tools;
+    expect(passedTools).toContainEqual({ type: 'web_search_20260209', name: 'web_search' });
+  });
+
+  it('omits web_search for a model whose catalog entry does not support it', async () => {
+    const toolRunner = vi.fn().mockReturnValue(emptyRunner());
+    vi.mocked(Anthropic).mockReturnValue({ beta: { messages: { toolRunner } } } as never);
+
+    const provider = createClaudeProvider('sk-ant-test', 'claude-haiku-4-5-20251001');
+    await provider.streamTurn({ system: 's', history: [], userText: 'hi', tools: [], ctx: fakeCtx(), onEvent: vi.fn() });
+
+    const passedTools = toolRunner.mock.calls[0][0].tools as Array<{ type?: string }>;
+    expect(passedTools.some((t) => typeof t.type === 'string' && t.type.startsWith('web_search_'))).toBe(false);
+  });
+});
+
+describe('toBetaTools vision gating', () => {
+  const tools: import('../tools/types').ToolDefinition[] = [
+    { name: 'a', tier: 'READ', label: 'A', schema: { name: 'a', description: '', input_schema: { type: 'object', properties: {} } }, run: async () => 'x' },
+    {
+      name: 'browser_screenshot',
+      tier: 'READ',
+      label: 'Screenshot',
+      schema: { name: 'browser_screenshot', description: '', input_schema: { type: 'object', properties: {} } },
+      run: async () => 'x',
+    },
+  ];
+
+  it('drops browser_screenshot when visionCapable is false', () => {
+    const wrapped = toBetaTools(tools, fakeCtx(), false);
+    expect(wrapped.map((t) => t.name)).toEqual(['a']);
+  });
+
+  it('keeps browser_screenshot when visionCapable is true', () => {
+    const wrapped = toBetaTools(tools, fakeCtx(), true);
+    expect(wrapped.map((t) => t.name)).toEqual(['a', 'browser_screenshot']);
+  });
+});
+
+describe('screenshot tool results', () => {
+  it("wraps a tool's plain string result as a multi-block array when it attached an image via ctx", async () => {
+    const ctx = fakeCtx() as import('../tools/types').ToolContext;
+    ctx.pendingImages = [];
+    ctx.attachImage = (block) => ctx.pendingImages!.push(block);
+    const screenshotTool: import('../tools/types').ToolDefinition = {
+      name: 'browser_screenshot',
+      tier: 'READ',
+      label: 'Screenshot',
+      schema: { name: 'browser_screenshot', description: '', input_schema: { type: 'object', properties: {} } },
+      run: async (_input, toolCtx) => {
+        toolCtx.attachImage?.({ type: 'image', mimeType: 'image/png', data: 'abc123' });
+        return 'Screenshot captured.';
+      },
+    };
+
+    const wrapped = toBetaTools([screenshotTool], ctx, true);
+    const result = await wrapped[0].run({});
+
+    expect(result).toEqual([
+      { type: 'text', text: 'Screenshot captured.' },
+      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'abc123' } },
+    ]);
+  });
+
+  it('returns a plain string when the tool attached no image', async () => {
+    const ctx = fakeCtx() as import('../tools/types').ToolContext;
+    ctx.pendingImages = [];
+    const plainTool: import('../tools/types').ToolDefinition = {
+      name: 'a',
+      tier: 'READ',
+      label: 'A',
+      schema: { name: 'a', description: '', input_schema: { type: 'object', properties: {} } },
+      run: async () => 'plain result',
+    };
+
+    const wrapped = toBetaTools([plainTool], ctx, true);
+    const result = await wrapped[0].run({});
+
+    expect(result).toBe('plain result');
+  });
+
+  it('resets ctx.pendingImages at the start of streamTurn so a stale image from a prior failed attempt never leaks in', async () => {
+    const toolRunner = vi.fn().mockReturnValue(emptyRunner());
+    vi.mocked(Anthropic).mockReturnValue({ beta: { messages: { toolRunner } } } as never);
+    const ctx = fakeCtx() as import('../tools/types').ToolContext;
+    ctx.pendingImages = [{ type: 'image', mimeType: 'image/png', data: 'stale' }];
+
+    const provider = createClaudeProvider('sk-ant-test', 'claude-sonnet-5');
+    await provider.streamTurn({ system: 's', history: [], userText: 'hi', tools: [], ctx, onEvent: vi.fn() });
+
+    expect(ctx.pendingImages).toEqual([]);
+  });
+});
+
+describe('attachments', () => {
+  it('folds attachments into the first user message as content blocks', async () => {
+    const toolRunner = vi.fn().mockReturnValue(emptyRunner());
+    vi.mocked(Anthropic).mockReturnValue({ beta: { messages: { toolRunner } } } as never);
+
+    const provider = createClaudeProvider('sk-ant-test', 'claude-sonnet-5');
+    await provider.streamTurn({
+      system: 's',
+      history: [],
+      userText: 'summarize this',
+      attachments: [
+        { type: 'text', text: 'extracted pdf text' },
+        { type: 'image', mimeType: 'image/png', data: 'abc123' },
+      ],
+      tools: [],
+      ctx: fakeCtx(),
+      onEvent: vi.fn(),
+    });
+
+    const messages = toolRunner.mock.calls[0][0].messages as Array<{ content: unknown }>;
+    expect(messages[messages.length - 1].content).toEqual([
+      { type: 'text', text: 'summarize this' },
+      { type: 'text', text: 'extracted pdf text' },
+      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'abc123' } },
+    ]);
+  });
+
+  it('sends userText as a plain string when there are no attachments (unchanged behavior)', async () => {
+    const toolRunner = vi.fn().mockReturnValue(emptyRunner());
+    vi.mocked(Anthropic).mockReturnValue({ beta: { messages: { toolRunner } } } as never);
+
+    const provider = createClaudeProvider('sk-ant-test', 'claude-sonnet-5');
+    await provider.streamTurn({ system: 's', history: [], userText: 'hi', tools: [], ctx: fakeCtx(), onEvent: vi.fn() });
+
+    const messages = toolRunner.mock.calls[0][0].messages as Array<{ content: unknown }>;
+    expect(messages[messages.length - 1].content).toBe('hi');
   });
 });
