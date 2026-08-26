@@ -1,10 +1,13 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
 interface StreamEvent {
-  type: 'text-delta' | 'tool-status' | 'turn-complete';
+  type: 'text-delta' | 'tool-status' | 'turn-complete' | 'provider-switched';
   text?: string;
   toolName?: string;
   toolLabel?: string;
+  from?: string;
+  to?: string;
+  reason?: string;
 }
 
 interface ConfirmRequest {
@@ -16,6 +19,29 @@ interface ConfirmRequest {
 interface AiMessage {
   role: 'user' | 'assistant';
   content: unknown;
+}
+
+interface CatalogEntry {
+  providerId: 'anthropic' | 'gemini';
+  model: string;
+  displayName: string;
+  costRank: number;
+}
+
+interface OllamaModelInfo {
+  name: string;
+}
+
+type ProviderId = 'anthropic' | 'gemini' | 'ollama';
+
+interface RankingEntry {
+  providerId: ProviderId;
+  model: string;
+}
+
+interface PinnedEntry {
+  providerId: ProviderId;
+  model: string;
 }
 
 interface CanvasSyncStatus {
@@ -148,6 +174,20 @@ const smartlife = {
       ipcRenderer.on('ai:confirm-resolved', listener);
       return () => ipcRenderer.removeListener('ai:confirm-resolved', listener);
     },
+    getCatalog: (): Promise<CatalogEntry[]> => ipcRenderer.invoke('ai:get-catalog'),
+    getGeminiKeyStatus: (): Promise<boolean> => ipcRenderer.invoke('ai:get-gemini-key-status'),
+    setGeminiKey: (apiKey: string): Promise<void> => ipcRenderer.invoke('ai:set-gemini-key', apiKey),
+    clearGeminiKey: (): Promise<void> => ipcRenderer.invoke('ai:clear-gemini-key'),
+    getOllamaEndpoint: (): Promise<string> => ipcRenderer.invoke('ai:get-ollama-endpoint'),
+    setOllamaEndpoint: (endpoint: string): Promise<void> => ipcRenderer.invoke('ai:set-ollama-endpoint', endpoint),
+    listOllamaModels: (): Promise<OllamaModelInfo[]> => ipcRenderer.invoke('ai:list-ollama-models'),
+    getRanking: (): Promise<RankingEntry[]> => ipcRenderer.invoke('ai:get-ranking'),
+    setRanking: (entries: RankingEntry[]): Promise<void> => ipcRenderer.invoke('ai:set-ranking', entries),
+    getPinnedEntry: (): Promise<PinnedEntry | null> => ipcRenderer.invoke('ai:get-pinned-entry'),
+    setPinnedEntry: (entry: PinnedEntry): Promise<void> => ipcRenderer.invoke('ai:set-pinned-entry', entry),
+    clearPinnedEntry: (): Promise<void> => ipcRenderer.invoke('ai:clear-pinned-entry'),
+    retryProviderEntry: (providerId: ProviderId, model: string): Promise<void> =>
+      ipcRenderer.invoke('ai:retry-provider-entry', providerId, model),
   },
   canvas: {
     getStatus: (): Promise<CanvasSyncStatus> => ipcRenderer.invoke('canvas:get-status'),

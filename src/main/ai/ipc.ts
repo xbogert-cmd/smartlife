@@ -8,6 +8,12 @@ import { getPendingConfirmation, resolveConfirmation, setConfirmationBroadcaster
 import { handleSendMessage } from './chatController';
 import type { ViewContext } from './viewContext';
 import { setActiveNavigator } from './navigatorRegistry';
+import { clearGeminiKey, clearPinnedEntry, getOllamaEndpoint, getPinnedEntry, hasGeminiKey, setGeminiKey, setOllamaEndpoint, setPinnedEntry, type PinnedEntry } from './providerConfig';
+import { getRanking, setRanking, type RankingEntry } from './providerRanking';
+import { CATALOG } from './providers/catalog';
+import { listOllamaModels } from './providers/ollama';
+import type { ProviderId } from './providers/types';
+import { resetProviderCache, retryProviderEntry } from './router';
 
 export function registerAiIpcHandlers(db: Database.Database, getWindow: () => BrowserWindow | null): void {
   // Published so canvas_open_assignment can move the app to /browser, the
@@ -35,5 +41,44 @@ export function registerAiIpcHandlers(db: Database.Database, getWindow: () => Br
   ipcMain.handle('ai:get-history', () => {
     const conversationId = getOrCreateConversationId(db);
     return getMessages(db, conversationId).map((m) => ({ role: m.role, content: JSON.parse(m.content) }));
+  });
+
+  ipcMain.handle('ai:get-catalog', () => CATALOG);
+
+  ipcMain.handle('ai:get-gemini-key-status', () => hasGeminiKey(db));
+  ipcMain.handle('ai:set-gemini-key', (_event, apiKey: string) => {
+    setGeminiKey(db, apiKey);
+    resetProviderCache();
+  });
+  ipcMain.handle('ai:clear-gemini-key', () => {
+    clearGeminiKey(db);
+    resetProviderCache();
+  });
+
+  ipcMain.handle('ai:get-ollama-endpoint', () => getOllamaEndpoint(db));
+  ipcMain.handle('ai:set-ollama-endpoint', (_event, endpoint: string) => {
+    setOllamaEndpoint(db, endpoint);
+    resetProviderCache();
+  });
+  ipcMain.handle('ai:list-ollama-models', () => listOllamaModels(getOllamaEndpoint(db)));
+
+  ipcMain.handle('ai:get-ranking', () => getRanking(db));
+  ipcMain.handle('ai:set-ranking', (_event, entries: RankingEntry[]) => {
+    setRanking(db, entries);
+    resetProviderCache();
+  });
+
+  ipcMain.handle('ai:get-pinned-entry', () => getPinnedEntry(db));
+  ipcMain.handle('ai:set-pinned-entry', (_event, entry: PinnedEntry) => {
+    setPinnedEntry(db, entry);
+    resetProviderCache();
+  });
+  ipcMain.handle('ai:clear-pinned-entry', () => {
+    clearPinnedEntry(db);
+    resetProviderCache();
+  });
+
+  ipcMain.handle('ai:retry-provider-entry', (_event, providerId: ProviderId, model: string) => {
+    retryProviderEntry(db, providerId, model);
   });
 }
