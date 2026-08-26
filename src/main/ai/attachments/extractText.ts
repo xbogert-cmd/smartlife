@@ -4,7 +4,7 @@ import mammoth from 'mammoth';
 /** Reads the real text layer only -- a scanned/image-only PDF yields little
  *  or nothing. No OCR in this phase; see the design spec's Deferred section. */
 export async function extractPdfText(buffer: Buffer): Promise<string> {
-  const loadingTask = getDocument({ data: new Uint8Array(buffer) });
+  const loadingTask = getDocument({ data: new Uint8Array(buffer), verbosity: 0 });
   try {
     const doc = await loadingTask.promise;
     const pages: string[] = [];
