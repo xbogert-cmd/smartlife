@@ -142,13 +142,24 @@ describe('screenshot tool results', () => {
   it('resets ctx.pendingImages at the start of streamTurn so a stale image from a prior failed attempt never leaks in', async () => {
     const toolRunner = vi.fn().mockReturnValue(emptyRunner());
     vi.mocked(Anthropic).mockReturnValue({ beta: { messages: { toolRunner } } } as never);
-    const ctx = fakeCtx() as import('../tools/types').ToolContext;
-    ctx.pendingImages = [{ type: 'image', mimeType: 'image/png', data: 'stale' }];
+    // Built the same way production's chatController.ts builds ctx: attachImage
+    // closes over a captured local array, not a dynamic `ctx.pendingImages`
+    // lookup. This is what makes the assertion below actually distinguish
+    // in-place truncation (`pendingImages.length = 0`, correct) from
+    // reassignment (`ctx.pendingImages = []`, would orphan this closure).
+    const pendingImages: import('../tools/types').CanonicalImageBlock[] = [
+      { type: 'image', mimeType: 'image/png', data: 'stale' },
+    ];
+    const ctx = {
+      ...fakeCtx(),
+      pendingImages,
+      attachImage: (block: import('../tools/types').CanonicalImageBlock) => pendingImages.push(block),
+    } as import('../tools/types').ToolContext;
 
     const provider = createClaudeProvider('sk-ant-test', 'claude-sonnet-5');
     await provider.streamTurn({ system: 's', history: [], userText: 'hi', tools: [], ctx, onEvent: vi.fn() });
 
-    expect(ctx.pendingImages).toEqual([]);
+    expect(pendingImages).toEqual([]);
   });
 });
 

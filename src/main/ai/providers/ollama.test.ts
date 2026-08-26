@@ -237,6 +237,48 @@ describe('vision via model-name detection', () => {
     // holds: browser_screenshot is not offered.
     expect((body.tools ?? []).map((t: { function: { name: string } }) => t.function.name)).not.toContain('browser_screenshot');
   });
+
+  it('does not send base64 image attachment data to a text-only model (Finding 1)', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(ndjsonResponse([{ message: { role: 'assistant', content: 'ok' }, done: true }]));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const provider = createOllamaProvider('http://localhost:11434', 'llama3.1');
+    await provider.streamTurn({
+      system: 's',
+      history: [],
+      userText: 'what is in this image?',
+      attachments: [{ type: 'image', mimeType: 'image/png', data: 'abc' }],
+      tools: [],
+      ctx: fakeCtx(),
+      onEvent: vi.fn(),
+    });
+
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    const lastMessage = body.messages[body.messages.length - 1];
+    expect(lastMessage.images).toBeUndefined();
+    expect(JSON.stringify(body)).not.toContain('abc');
+    expect(lastMessage.content).toContain('cannot see images');
+  });
+
+  it('does send base64 image attachment data to a known vision model (Finding 1)', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(ndjsonResponse([{ message: { role: 'assistant', content: 'ok' }, done: true }]));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const provider = createOllamaProvider('http://localhost:11434', 'llava:13b');
+    await provider.streamTurn({
+      system: 's',
+      history: [],
+      userText: 'what is in this image?',
+      attachments: [{ type: 'image', mimeType: 'image/png', data: 'abc' }],
+      tools: [],
+      ctx: fakeCtx(),
+      onEvent: vi.fn(),
+    });
+
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    const lastMessage = body.messages[body.messages.length - 1];
+    expect(lastMessage.images).toEqual(['abc']);
+  });
 });
 
 describe('toOllamaMessages with attachments', () => {
@@ -251,6 +293,30 @@ describe('toOllamaMessages with attachments', () => {
   it('leaves the user message unchanged when there are no attachments', () => {
     const messages = toOllamaMessages('sys', [], 'hi');
     expect(messages[messages.length - 1]).toEqual({ role: 'user', content: 'hi' });
+  });
+
+  it('omits base64 image data and appends a short note instead when visionCapable is false', () => {
+    const messages = toOllamaMessages(
+      'sys',
+      [],
+      'what is in this image?',
+      [{ type: 'image', mimeType: 'image/png', data: 'abc' }],
+      false
+    );
+    const last = messages[messages.length - 1];
+    expect(last.images).toBeUndefined();
+    expect(last.content).toBe('what is in this image?\n\n(1 image attached, but this model cannot see images)');
+  });
+
+  it('still sends base64 image data in the images field when visionCapable is true', () => {
+    const messages = toOllamaMessages(
+      'sys',
+      [],
+      'what is in this image?',
+      [{ type: 'image', mimeType: 'image/png', data: 'abc' }],
+      true
+    );
+    expect(messages[messages.length - 1]).toEqual({ role: 'user', content: 'what is in this image?', images: ['abc'] });
   });
 });
 
@@ -301,13 +367,24 @@ describe('screenshot round-trip', () => {
 
   it('resets ctx.pendingImages at the start of streamTurn so a stale image from a prior failed attempt never leaks in', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(ndjsonResponse([{ message: { role: 'assistant', content: 'ok' }, done: true }])));
-    const ctx = fakeCtx() as import('../tools/types').ToolContext;
-    ctx.pendingImages = [{ type: 'image', mimeType: 'image/png', data: 'stale' }];
+    // Built the same way production's chatController.ts builds ctx: attachImage
+    // closes over a captured local array, not a dynamic `ctx.pendingImages`
+    // lookup. This is what makes the assertion below actually distinguish
+    // in-place truncation (`pendingImages.length = 0`, correct) from
+    // reassignment (`ctx.pendingImages = []`, would orphan this closure).
+    const pendingImages: import('../tools/types').CanonicalImageBlock[] = [
+      { type: 'image', mimeType: 'image/png', data: 'stale' },
+    ];
+    const ctx = {
+      ...fakeCtx(),
+      pendingImages,
+      attachImage: (block: import('../tools/types').CanonicalImageBlock) => pendingImages.push(block),
+    } as import('../tools/types').ToolContext;
 
     const provider = createOllamaProvider('http://localhost:11434', 'llama3.1');
     await provider.streamTurn({ system: 's', history: [], userText: 'hi', tools: [], ctx, onEvent: vi.fn() });
 
-    expect(ctx.pendingImages).toEqual([]);
+    expect(pendingImages).toEqual([]);
   });
 });
 

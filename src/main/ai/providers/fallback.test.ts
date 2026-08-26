@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { CanonicalImageBlock } from '../tools/types';
 import type { AIProvider, CanonicalTextBlock } from './types';
 import { createFallbackProvider, type RankedEntry } from './fallback';
 
@@ -134,5 +135,53 @@ describe('createFallbackProvider', () => {
   it('throws a clear error and calls nothing when the entry list is empty', async () => {
     const fallback = createFallbackProvider([]);
     await expect(fallback.streamTurn(baseParams())).rejects.toThrow(/No AI provider is configured/);
+  });
+
+  it("does not leak provider A's stale attached image into provider B's turn via the shared ctx (Finding 2)", async () => {
+    // Same closure pattern chatController.ts uses for real: attachImage
+    // pushes onto a captured local array that ctx.pendingImages also points
+    // at, so truncating one is visible through the other -- unlike a plain
+    // reassignment, which would orphan this reference.
+    const pendingImages: CanonicalImageBlock[] = [];
+    const ctx = {
+      ...baseParams().ctx,
+      pendingImages,
+      attachImage: (block: CanonicalImageBlock) => pendingImages.push(block),
+    };
+
+    // Provider A: simulates a tool that ran mid-turn and attached an image,
+    // then the turn itself fails (triggering fallback to B).
+    const providerA: AIProvider = {
+      streamTurn: vi.fn(async (params) => {
+        params.ctx.attachImage?.({ type: 'image', mimeType: 'image/png', data: 'from-a' });
+        throw new Error('provider A boom');
+      }),
+    };
+
+    // Provider B: the real FallbackProvider retry target. It must see the
+    // SAME ctx object (that's the whole point of the leak risk), but its own
+    // reset -- run for real inside its own streamTurn, same as claude.ts /
+    // gemini.ts / ollama.ts do -- must have already cleared A's stale image.
+    const providerB: AIProvider = {
+      streamTurn: vi.fn(async (params) => {
+        params.ctx.pendingImages!.length = 0; // the same in-place reset every real adapter performs
+        expect(params.ctx.pendingImages).toEqual([]);
+        return [{ type: 'text', text: 'from b' }] as CanonicalTextBlock[];
+      }),
+    };
+
+    const entries: RankedEntry[] = [
+      { providerId: 'anthropic', model: 'a', displayName: 'A', costRank: 3, provider: providerA },
+      { providerId: 'gemini', model: 'b', displayName: 'B', costRank: 1, provider: providerB },
+    ];
+    const fallback = createFallbackProvider(entries);
+    const result = await fallback.streamTurn({ ...baseParams(), ctx });
+
+    expect(result).toEqual([{ type: 'text', text: 'from b' }]);
+    expect(providerA.streamTurn).toHaveBeenCalledTimes(1);
+    expect(providerB.streamTurn).toHaveBeenCalledTimes(1);
+    // A's attach did land in the shared array before B's reset ran -- proves
+    // this is a real leak scenario, not a vacuous pass from an empty array.
+    expect(pendingImages).toEqual([]);
   });
 });

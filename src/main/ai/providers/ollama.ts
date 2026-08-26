@@ -47,14 +47,26 @@ export function toOllamaMessages(
   system: string,
   history: TurnMessage[],
   userText: string,
-  attachments: CanonicalContentBlock[] = []
+  attachments: CanonicalContentBlock[] = [],
+  visionCapable = true
 ): OllamaMessage[] {
   const texts = attachments.filter((a): a is { type: 'text'; text: string } => a.type === 'text').map((a) => a.text);
   const images = attachments.filter((a): a is { type: 'image'; mimeType: string; data: string } => a.type === 'image').map((a) => a.data);
-  const content = texts.length > 0 ? `${userText}\n\n${texts.join('\n\n')}` : userText;
+  let content = texts.length > 0 ? `${userText}\n\n${texts.join('\n\n')}` : userText;
 
   const userMessage: OllamaMessage = { role: 'user', content };
-  if (images.length > 0) userMessage.images = images;
+  if (images.length > 0) {
+    if (visionCapable) {
+      userMessage.images = images;
+    } else {
+      // Don't fold base64 image data into a request the model can't see --
+      // but say so instead of silently dropping it, since userText may
+      // reference "this image" directly. See router.ts's getActiveCapabilities
+      // comment: the real vision gate is each provider adapter's own check.
+      content += `\n\n(${images.length} image${images.length > 1 ? 's' : ''} attached, but this model cannot see images)`;
+      userMessage.content = content;
+    }
+  }
 
   return [{ role: 'system', content: system }, ...history.map((m) => ({ role: m.role, content: textOf(m.content) }) as OllamaMessage), userMessage];
 }
@@ -118,7 +130,7 @@ export function createOllamaProvider(endpoint: string, model: string): AIProvide
       const toolLabels = new Map(tools.map((tool) => [tool.schema.name, tool.label]));
       const visionCapable = isKnownGoodForVision(model);
       const ollamaTools = toOllamaTools(tools, visionCapable);
-      const messages = toOllamaMessages(system, history, userText, attachments);
+      const messages = toOllamaMessages(system, history, userText, attachments, visionCapable);
 
       let finalText = '';
       // Same manual-tool-loop safety valve as gemini.ts -- a hard cap so a

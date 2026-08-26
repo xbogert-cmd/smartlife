@@ -281,12 +281,23 @@ describe('screenshot round-trip', () => {
     const create = vi.fn().mockReturnValue({ sendMessageStream });
     vi.mocked(GoogleGenAI).mockReturnValue({ chats: { create } } as never);
 
-    const ctx = fakeCtx() as ToolContext;
-    ctx.pendingImages = [{ type: 'image', mimeType: 'image/png', data: 'stale' }];
+    // Built the same way production's chatController.ts builds ctx: attachImage
+    // closes over a captured local array, not a dynamic `ctx.pendingImages`
+    // lookup. This is what makes the assertion below actually distinguish
+    // in-place truncation (`pendingImages.length = 0`, correct) from
+    // reassignment (`ctx.pendingImages = []`, would orphan this closure).
+    const pendingImages: import('../tools/types').CanonicalImageBlock[] = [
+      { type: 'image', mimeType: 'image/png', data: 'stale' },
+    ];
+    const ctx = {
+      ...fakeCtx(),
+      pendingImages,
+      attachImage: (block: import('../tools/types').CanonicalImageBlock) => pendingImages.push(block),
+    } as ToolContext;
 
     const provider = createGeminiProvider('test-key', 'gemini-2.5-flash');
     await provider.streamTurn({ system: 's', history: [], userText: 'hi', tools: [], ctx, onEvent: vi.fn() });
 
-    expect(ctx.pendingImages).toEqual([]);
+    expect(pendingImages).toEqual([]);
   });
 });
