@@ -13,7 +13,8 @@ import { getRanking, setRanking, type RankingEntry } from './providerRanking';
 import { CATALOG } from './providers/catalog';
 import { listOllamaModels } from './providers/ollama';
 import type { ProviderId } from './providers/types';
-import { hasUsableProvider, resetProviderCache, retryProviderEntry } from './router';
+import { getActiveCapabilities, hasUsableProvider, resetProviderCache, retryProviderEntry } from './router';
+import { pickAttachment } from './attachments/pickAttachment';
 
 export function registerAiIpcHandlers(db: Database.Database, getWindow: () => BrowserWindow | null): void {
   // Published so canvas_open_assignment can move the app to /browser, the
@@ -32,8 +33,8 @@ export function registerAiIpcHandlers(db: Database.Database, getWindow: () => Br
     setAiMode(db, mode);
   });
 
-  ipcMain.handle('ai:send-message', (_event, text: string, view: ViewContext | null) =>
-    handleSendMessage(db, getWindow, text, view ?? null)
+  ipcMain.handle('ai:send-message', (_event, text: string, view: ViewContext | null, attachmentIds: string[] = []) =>
+    handleSendMessage(db, getWindow, text, view ?? null, { attachmentIds })
   );
   ipcMain.handle('ai:confirm-response', (_event, id: string, approved: boolean) => {
     resolveConfirmation(id, approved);
@@ -84,4 +85,6 @@ export function registerAiIpcHandlers(db: Database.Database, getWindow: () => Br
   });
 
   ipcMain.handle('ai:has-usable-provider', () => hasUsableProvider(db));
+
+  ipcMain.handle('ai:pick-attachment', () => pickAttachment(getWindow(), getActiveCapabilities(db).supportsVision));
 }

@@ -5,8 +5,9 @@ import { getOrCreateConversationId, appendMessage, getMessages } from './convers
 import { requestConfirmation as requestToolConfirmation } from './confirmations';
 import { TOOLS } from './tools/registry';
 import { getProvider } from './router';
+import { takeAttachments } from './attachments/pickAttachment';
 import type { ToolContext } from './tools/types';
-import { ProviderError, type AIProvider, type StreamEvent } from './providers/types';
+import { ProviderError, type AIProvider, type CanonicalImageBlock, type StreamEvent } from './providers/types';
 import { buildSystemPrompt, type ViewContext } from './viewContext';
 import { notifyIfUnfocused } from '../notify';
 import { logError } from '../log';
@@ -20,8 +21,9 @@ export async function handleSendMessage(
   getWindow: () => BrowserWindow | null,
   userText: string,
   view: ViewContext | null,
-  provider: AIProvider = getProvider(db)
+  options: { attachmentIds?: string[]; provider?: AIProvider } = {}
 ): Promise<void> {
+  const { attachmentIds = [], provider = getProvider(db) } = options;
   const send = (event: StreamEvent): void => getWindow()?.webContents.send('ai:stream-event', event);
 
   if (turnInFlight) {
@@ -39,10 +41,15 @@ export async function handleSendMessage(
       content: JSON.parse(m.content) as unknown,
     }));
 
+    const pendingImages: CanonicalImageBlock[] = [];
     const ctx: ToolContext = {
       db,
       conversationId,
       mode,
+      pendingImages,
+      attachImage: (block) => {
+        pendingImages.push(block);
+      },
       requestConfirmation: (toolName, description, timeoutMs) => {
         // If there's no window to show a confirmation UI in, there's no way for the
         // user to ever approve — resolve as declined instead of parking the promise
@@ -58,16 +65,20 @@ export async function handleSendMessage(
       },
     };
 
+    const { blocks: attachments, placeholders } = takeAttachments(attachmentIds);
+
     try {
       const finalContent = await provider.streamTurn({
         system: buildSystemPrompt(db, view),
         history,
         userText,
+        attachments: attachments.length > 0 ? attachments : undefined,
         tools: TOOLS,
         ctx,
         onEvent: send,
       });
-      appendMessage(db, conversationId, 'user', [{ type: 'text', text: userText }]);
+      const persistedUserText = placeholders.length > 0 ? `${userText}\n\n${placeholders.join('\n')}` : userText;
+      appendMessage(db, conversationId, 'user', [{ type: 'text', text: persistedUserText }]);
       appendMessage(db, conversationId, 'assistant', finalContent);
     } catch (error) {
       // Every other main-process error path (browser, sync, downloads) is

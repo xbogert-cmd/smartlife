@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../db/migrate';
 import { setStoredApiKey } from './apiKey';
-import { ProviderError, type AIProvider } from './providers/types';
+import { ProviderError, type AIProvider, type CanonicalContentBlock } from './providers/types';
 
 vi.mock('electron', () => ({
   safeStorage: {
@@ -12,6 +12,11 @@ vi.mock('electron', () => ({
   },
   app: { getPath: () => '/tmp/logs' },
 }));
+
+const takeAttachmentsMock = vi.fn(
+  (): { blocks: CanonicalContentBlock[]; placeholders: string[] } => ({ blocks: [], placeholders: [] })
+);
+vi.mock('./attachments/pickAttachment', () => ({ takeAttachments: takeAttachmentsMock }));
 
 const INIT_SQL = `create table settings (key text primary key, value text not null);`;
 const AI_PROVIDERS_SQL = `create table ai_provider_ranking (rank integer primary key, provider text not null, model text not null);`;
@@ -76,7 +81,7 @@ describe('handleSendMessage', () => {
     setStoredApiKey(db, 'sk-ant-test');
     const window = fakeWindow();
     const provider: AIProvider = { streamTurn: vi.fn().mockResolvedValue([{ type: 'text', text: 'Hi there!' }]) };
-    await handleSendMessage(db, () => window as never, 'hello', null, provider);
+    await handleSendMessage(db, () => window as never, 'hello', null, { provider });
     const rows = db.prepare('select role, content from ai_messages order by created_at').all() as Array<{
       role: string;
       content: string;
@@ -94,7 +99,7 @@ describe('handleSendMessage', () => {
     setStoredApiKey(db, 'sk-ant-test');
     const window = fakeWindow();
     const provider: AIProvider = { streamTurn: vi.fn().mockRejectedValue(new Error('network down')) };
-    await handleSendMessage(db, () => window as never, 'hello', null, provider);
+    await handleSendMessage(db, () => window as never, 'hello', null, { provider });
     const count = db.prepare('select count(*) as count from ai_messages').get() as { count: number };
     expect(count.count).toBe(0);
     expect(window.sent.some((s) => JSON.stringify(s.payload).includes('went wrong'))).toBe(true);
@@ -108,7 +113,7 @@ describe('handleSendMessage', () => {
     const provider: AIProvider = {
       streamTurn: vi.fn().mockRejectedValue(new ProviderError('Your credit balance is too low to access the Anthropic API.')),
     };
-    await handleSendMessage(db, () => window as never, 'hello', null, provider);
+    await handleSendMessage(db, () => window as never, 'hello', null, { provider });
     expect(
       window.sent.some((s) => JSON.stringify(s.payload).includes('Your credit balance is too low'))
     ).toBe(true);
@@ -126,7 +131,7 @@ describe('handleSendMessage', () => {
         return [{ type: 'text', text: 'done' }];
       }),
     };
-    await handleSendMessage(db, () => null, 'hello', null, provider);
+    await handleSendMessage(db, () => null, 'hello', null, { provider });
     expect(confirmResult).toBe(false);
   });
 
@@ -147,12 +152,12 @@ describe('handleSendMessage', () => {
       }),
     };
 
-    const firstCall = handleSendMessage(db, () => window as never, 'first', null, provider);
+    const firstCall = handleSendMessage(db, () => window as never, 'first', null, { provider });
     // Let the first call reach and start awaiting streamTurn before firing the second.
     await Promise.resolve();
     await Promise.resolve();
 
-    const secondCall = handleSendMessage(db, () => window as never, 'second', null, provider);
+    const secondCall = handleSendMessage(db, () => window as never, 'second', null, { provider });
     await secondCall;
 
     expect(provider.streamTurn).toHaveBeenCalledTimes(1);
@@ -176,7 +181,7 @@ describe('system prompt', () => {
     const db = makeDb();
     setStoredApiKey(db, 'sk-ant-test');
     const streamTurn = vi.fn().mockResolvedValue([{ type: 'text', text: 'ok' }]);
-    await handleSendMessage(db, () => fakeWindow() as never, 'hi', null, { streamTurn });
+    await handleSendMessage(db, () => fakeWindow() as never, 'hi', null, { provider: { streamTurn } });
 
     const system = streamTurn.mock.calls[0][0].system as string;
     expect(typeof system).toBe('string');
@@ -196,7 +201,7 @@ describe('system prompt', () => {
 
     const streamTurn = vi.fn().mockResolvedValue([{ type: 'text', text: 'ok' }]);
     await handleSendMessage(db, () => fakeWindow() as never, 'hi', { route: 'assignment', assignmentId: 10 }, {
-      streamTurn,
+      provider: { streamTurn },
     });
 
     expect(streamTurn.mock.calls[0][0].system).toContain('Chapter 4 Homework');
@@ -208,7 +213,42 @@ describe('system prompt', () => {
     setStoredApiKey(db, 'sk-ant-test');
     const streamTurn = vi.fn().mockResolvedValue([{ type: 'text', text: 'ok' }]);
     await expect(
-      handleSendMessage(db, () => fakeWindow() as never, 'hi', null, { streamTurn })
+      handleSendMessage(db, () => fakeWindow() as never, 'hi', null, { provider: { streamTurn } })
     ).resolves.toBeUndefined();
+  });
+});
+
+describe('attachments', () => {
+  it('persists a text placeholder instead of the full extracted content, and passes the real content to the provider', async () => {
+    const { handleSendMessage } = await import('./chatController');
+    takeAttachmentsMock.mockReturnValueOnce({
+      blocks: [{ type: 'text', text: 'the full pdf text' }],
+      placeholders: ['[attached: syllabus.pdf — 17 chars extracted]'],
+    });
+    const db = makeDb();
+    setStoredApiKey(db, 'sk-ant-test');
+    const window = fakeWindow();
+    const streamTurn = vi.fn().mockResolvedValue([{ type: 'text', text: 'ok' }]);
+    await handleSendMessage(db, () => window as never, 'summarize this', null, {
+      attachmentIds: ['attach-1'],
+      provider: { streamTurn },
+    });
+
+    expect(streamTurn.mock.calls[0][0].attachments).toEqual([{ type: 'text', text: 'the full pdf text' }]);
+
+    const rows = db.prepare('select content from ai_messages where role = ?').all('user') as Array<{ content: string }>;
+    const persisted = JSON.parse(rows[0].content)[0].text as string;
+    expect(persisted).toContain('summarize this');
+    expect(persisted).toContain('[attached: syllabus.pdf — 17 chars extracted]');
+    expect(persisted).not.toContain('the full pdf text');
+  });
+
+  it('omits attachments entirely from the provider call when none were sent', async () => {
+    const { handleSendMessage } = await import('./chatController');
+    const db = makeDb();
+    setStoredApiKey(db, 'sk-ant-test');
+    const streamTurn = vi.fn().mockResolvedValue([{ type: 'text', text: 'ok' }]);
+    await handleSendMessage(db, () => fakeWindow() as never, 'hi', null, { provider: { streamTurn } });
+    expect(streamTurn.mock.calls[0][0].attachments).toBeUndefined();
   });
 });

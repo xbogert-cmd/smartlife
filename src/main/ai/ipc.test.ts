@@ -7,6 +7,7 @@ const routerMocks = {
   resetProviderCache: vi.fn(),
   retryProviderEntry: vi.fn(),
   hasUsableProvider: vi.fn(),
+  getActiveCapabilities: vi.fn(),
 };
 
 vi.mock('electron', () => ({
@@ -20,6 +21,8 @@ vi.mock('electron', () => ({
   },
 }));
 vi.mock('./router', () => routerMocks);
+const pickAttachmentMock = vi.fn();
+vi.mock('./attachments/pickAttachment', () => ({ pickAttachment: pickAttachmentMock }));
 
 function makeDb(): Database.Database {
   const db = new Database(':memory:');
@@ -108,5 +111,20 @@ describe('AI provider IPC handlers', () => {
     routerMocks.hasUsableProvider.mockReturnValue(true);
     expect(await call('ai:has-usable-provider')).toBe(true);
     expect(routerMocks.hasUsableProvider).toHaveBeenCalledWith(expect.anything());
+  });
+});
+
+describe('ai:pick-attachment', () => {
+  it('calls pickAttachment with the current window and the active vision capability', async () => {
+    const { call } = await setup();
+    routerMocks.getActiveCapabilities.mockReturnValue({ supportsVision: true, supportsWebSearch: false });
+    pickAttachmentMock.mockResolvedValue({ ok: true, id: 'attach-1', name: 'notes.txt', kind: 'text' });
+
+    const result = await call('ai:pick-attachment');
+
+    // setup() registers handlers via registerAiIpcHandlers(db, () => null),
+    // so the window argument pickAttachment receives is null.
+    expect(pickAttachmentMock).toHaveBeenCalledWith(null, true);
+    expect(result).toEqual({ ok: true, id: 'attach-1', name: 'notes.txt', kind: 'text' });
   });
 });
