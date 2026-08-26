@@ -10,6 +10,7 @@ class FakeWebContents {
   windowOpenHandler: ((details: { url: string }) => unknown) | null = null;
   executeResult: unknown = null;
   executeError: Error | null = null;
+  captureError: Error | null = null;
   closed = false;
   title = 'Fake Page';
   navigationHistory = { canGoBack: () => true, canGoForward: () => false, goBack: vi.fn(), goForward: vi.fn() };
@@ -40,6 +41,10 @@ class FakeWebContents {
   executeJavaScript(): Promise<unknown> {
     if (this.executeError) return Promise.reject(this.executeError);
     return Promise.resolve(this.executeResult);
+  }
+  capturePage(): Promise<{ toPNG: () => Buffer }> {
+    if (this.captureError) return Promise.reject(this.captureError);
+    return Promise.resolve({ toPNG: () => Buffer.from('fake-png-bytes') });
   }
   close(): void {
     this.closed = true;
@@ -439,6 +444,27 @@ describe('readPage', () => {
     const { host } = makeHost();
     const result = await host.readPage('does-not-exist');
     expect(result.status).toBe('not-loaded');
+  });
+});
+
+describe('captureScreenshot', () => {
+  it('returns base64 PNG data for the active tab', async () => {
+    const { host } = makeHost();
+    const result = await host.captureScreenshot();
+    expect(result).toEqual({ mimeType: 'image/png', data: Buffer.from('fake-png-bytes').toString('base64') });
+  });
+
+  it('returns null for an unknown tab id', async () => {
+    const { host } = makeHost();
+    const result = await host.captureScreenshot('does-not-exist');
+    expect(result).toBeNull();
+  });
+
+  it('returns null instead of throwing when capturePage rejects', async () => {
+    const { host, added } = makeHost();
+    added[0].webContents.captureError = new Error('capture failed');
+    const result = await host.captureScreenshot();
+    expect(result).toBeNull();
   });
 });
 

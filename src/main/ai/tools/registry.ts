@@ -16,6 +16,7 @@ import { browserClickTool } from './browserClick';
 import { browserTypeTool } from './browserType';
 import { browserSelectTool } from './browserSelect';
 import { browserOpenTabTool } from './browserOpenTab';
+import { browserScreenshotTool } from './browserScreenshot';
 import { canvasSubmitAssignmentTool } from './canvasSubmitAssignment';
 import { canvasFindAssignmentTool } from './canvasFindAssignment';
 import { canvasOpenAssignmentTool } from './canvasOpenAssignment';
@@ -38,6 +39,7 @@ export const TOOLS: ToolDefinition[] = [
   browserTypeTool,
   browserSelectTool,
   browserOpenTabTool,
+  browserScreenshotTool,
   canvasSubmitAssignmentTool,
   canvasFindAssignmentTool,
   canvasOpenAssignmentTool,

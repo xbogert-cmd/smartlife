@@ -193,7 +193,7 @@ describe('registry', () => {
     const { TOOLS } = await import('./registry');
     const browserTools = TOOLS.filter((tool) => tool.name.startsWith('browser_'));
     const actionTools = ['browser_click', 'browser_select', 'browser_type'];
-    const readTools = ['browser_list_actionable_elements', 'browser_list_tabs', 'browser_read_page'];
+    const readTools = ['browser_list_actionable_elements', 'browser_list_tabs', 'browser_read_page', 'browser_screenshot'];
     const safeWriteTools = ['browser_open_tab'];
     expect(browserTools.map((tool) => tool.name).sort()).toEqual([...actionTools, ...readTools, ...safeWriteTools].sort());
     for (const tool of browserTools) {

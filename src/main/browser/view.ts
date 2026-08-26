@@ -80,6 +80,7 @@ export interface BrowserHost {
   resume(): void;
   resetSuspend(): void;
   readPage(id?: string): Promise<PageExtract>;
+  captureScreenshot(id?: string): Promise<{ mimeType: string; data: string } | null>;
   listActionableElements(id?: string): Promise<ElementDescriptor[]>;
   clickElement(ref: string): Promise<ElementActionResult>;
   typeIntoElement(ref: string, text: string): Promise<ElementActionResult>;
@@ -446,6 +447,19 @@ export function createBrowserHost(options: BrowserHostOptions): BrowserHost {
       } catch (error) {
         logError('browser:readPage', error);
         return shapeExtraction(null, fallbackUrl);
+      }
+    },
+
+    async captureScreenshot(id) {
+      const targetId = id ?? state.activeTabId;
+      const contents = views.get(targetId)?.webContents;
+      if (!contents) return null;
+      try {
+        const image = await contents.capturePage();
+        return { mimeType: 'image/png', data: image.toPNG().toString('base64') };
+      } catch (error) {
+        logError('browser:captureScreenshot', error);
+        return null;
       }
     },
 
