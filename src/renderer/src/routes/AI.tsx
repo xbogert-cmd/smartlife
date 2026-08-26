@@ -24,6 +24,10 @@ export function AI() {
       onInputChange={setInput}
       onSubmit={handleSubmit}
       onRespondToConfirm={conversation.respondToConfirm}
+      attachments={conversation.attachments}
+      attachError={conversation.attachError}
+      onAddAttachment={conversation.addAttachment}
+      onRemoveAttachment={conversation.removeAttachment}
     />
   );
 }

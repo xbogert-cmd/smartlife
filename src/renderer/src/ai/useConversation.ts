@@ -13,6 +13,12 @@ export interface PendingConfirm {
   description: string;
 }
 
+export interface PendingAttachment {
+  id: string;
+  name: string;
+  kind: 'text' | 'image';
+}
+
 function extractText(content: unknown): string {
   if (!Array.isArray(content)) return '';
   return content
@@ -34,6 +40,8 @@ export function useConversation(view: unknown = null) {
   // rename that would touch ChatPanel's prop type and its tests for no
   // functional benefit.
   const [apiKeyConfigured, setApiKeyConfigured] = useState<boolean | null>(null);
+  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
+  const [attachError, setAttachError] = useState<string | null>(null);
   const streamingIdRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -125,19 +133,39 @@ export function useConversation(view: unknown = null) {
     };
   }, []);
 
-  const sendMessage = useCallback((text: string) => {
-    const id = `user-${Date.now()}-${Math.random()}`;
-    setMessages((prev) => [...prev, { id, role: 'user', text }]);
-    setSending(true);
-    streamingIdRef.current = null;
-    window.smartlife.ai.sendMessage(text, view).catch(() => {
-      setSending(false);
-      setMessages((prev) => [
-        ...prev,
-        { id: `assistant-${Date.now()}-${Math.random()}`, role: 'assistant', text: 'Something went wrong — try again.' },
-      ]);
-    });
-  }, [view]);
+  const addAttachment = useCallback(async () => {
+    const result = await window.smartlife.ai.pickAttachment().catch(() => null);
+    if (!result) return;
+    if (!result.ok) {
+      setAttachError(result.reason);
+      return;
+    }
+    setAttachError(null);
+    setAttachments((prev) => [...prev, { id: result.id, name: result.name, kind: result.kind }]);
+  }, []);
+
+  const removeAttachment = useCallback((id: string) => {
+    setAttachments((prev) => prev.filter((a) => a.id !== id));
+  }, []);
+
+  const sendMessage = useCallback(
+    (text: string) => {
+      const id = `user-${Date.now()}-${Math.random()}`;
+      setMessages((prev) => [...prev, { id, role: 'user', text }]);
+      setSending(true);
+      streamingIdRef.current = null;
+      const attachmentIds = attachments.map((a) => a.id);
+      setAttachments([]);
+      window.smartlife.ai.sendMessage(text, view, attachmentIds).catch(() => {
+        setSending(false);
+        setMessages((prev) => [
+          ...prev,
+          { id: `assistant-${Date.now()}-${Math.random()}`, role: 'assistant', text: 'Something went wrong — try again.' },
+        ]);
+      });
+    },
+    [view, attachments]
+  );
 
   const respondToConfirm = useCallback(
     async (approved: boolean) => {
@@ -148,5 +176,17 @@ export function useConversation(view: unknown = null) {
     [pendingConfirm]
   );
 
-  return { messages, statusLabel, pendingConfirm, sending, apiKeyConfigured, sendMessage, respondToConfirm };
+  return {
+    messages,
+    statusLabel,
+    pendingConfirm,
+    sending,
+    apiKeyConfigured,
+    attachments,
+    attachError,
+    addAttachment,
+    removeAttachment,
+    sendMessage,
+    respondToConfirm,
+  };
 }

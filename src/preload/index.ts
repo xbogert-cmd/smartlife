@@ -124,6 +124,10 @@ interface BrowserHistoryEntry {
   visitedAt: string;
 }
 
+type PickAttachmentResult =
+  | { ok: true; id: string; name: string; kind: 'text' | 'image' }
+  | { ok: false; reason: string };
+
 const smartlife = {
   theme: {
     get: (): Promise<'light' | 'dark' | 'system'> => ipcRenderer.invoke('theme:get'),
@@ -154,8 +158,8 @@ const smartlife = {
     setApiKey: (apiKey: string): Promise<void> => ipcRenderer.invoke('ai:set-api-key', apiKey),
     getMode: (): Promise<'ask' | 'assist' | 'auto'> => ipcRenderer.invoke('ai:get-mode'),
     setMode: (mode: 'ask' | 'assist' | 'auto'): Promise<void> => ipcRenderer.invoke('ai:set-mode', mode),
-    sendMessage: (text: string, view: unknown = null): Promise<void> =>
-      ipcRenderer.invoke('ai:send-message', text, view),
+    sendMessage: (text: string, view: unknown = null, attachmentIds: string[] = []): Promise<void> =>
+      ipcRenderer.invoke('ai:send-message', text, view, attachmentIds),
     onStreamEvent: (cb: (event: StreamEvent) => void): (() => void) => {
       const listener = (_event: Electron.IpcRendererEvent, streamEvent: StreamEvent) => cb(streamEvent);
       ipcRenderer.on('ai:stream-event', listener);
@@ -189,6 +193,7 @@ const smartlife = {
     retryProviderEntry: (providerId: ProviderId, model: string): Promise<void> =>
       ipcRenderer.invoke('ai:retry-provider-entry', providerId, model),
     hasUsableProvider: (): Promise<boolean> => ipcRenderer.invoke('ai:has-usable-provider'),
+    pickAttachment: (): Promise<PickAttachmentResult | null> => ipcRenderer.invoke('ai:pick-attachment'),
   },
   canvas: {
     getStatus: (): Promise<CanvasSyncStatus> => ipcRenderer.invoke('canvas:get-status'),

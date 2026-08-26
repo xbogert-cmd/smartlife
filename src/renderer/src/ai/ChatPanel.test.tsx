@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { ChatPanel } from './ChatPanel';
 import type { ChatMessage } from './useConversation';
@@ -25,6 +26,10 @@ function panel(count: number) {
         onInputChange={() => {}}
         onSubmit={() => {}}
         onRespondToConfirm={() => {}}
+        attachments={[]}
+        attachError={null}
+        onAddAttachment={() => {}}
+        onRemoveAttachment={() => {}}
       />
     </MemoryRouter>
   );
@@ -82,11 +87,73 @@ describe('ChatPanel switch notices', () => {
           onInputChange={vi.fn()}
           onSubmit={vi.fn()}
           onRespondToConfirm={vi.fn()}
+          attachments={[]}
+          attachError={null}
+          onAddAttachment={vi.fn()}
+          onRemoveAttachment={vi.fn()}
         />
       </MemoryRouter>
     );
     expect(screen.getByText(/switched to gemini/i)).toBeInTheDocument();
     expect(screen.getByText('Partial answer from the first provider')).toBeInTheDocument();
     expect(screen.getByText('Full fresh answer from Gemini')).toBeInTheDocument();
+  });
+});
+
+describe('ChatPanel attachments', () => {
+  const baseProps = {
+    messages: [],
+    statusLabel: null,
+    pendingConfirm: null,
+    sending: false,
+    apiKeyConfigured: true,
+    input: '',
+    onInputChange: vi.fn(),
+    onSubmit: vi.fn(),
+    onRespondToConfirm: vi.fn(),
+    attachments: [] as { id: string; name: string; kind: 'text' | 'image' }[],
+    attachError: null as string | null,
+    onAddAttachment: vi.fn(),
+    onRemoveAttachment: vi.fn(),
+  };
+
+  it('renders an attach chip per pending attachment with a remove control', () => {
+    render(
+      <MemoryRouter>
+        <ChatPanel {...baseProps} attachments={[{ id: 'a1', name: 'notes.txt', kind: 'text' }]} />
+      </MemoryRouter>
+    );
+    expect(screen.getByText('notes.txt')).toBeInTheDocument();
+  });
+
+  it('calls onRemoveAttachment with the chip’s id', async () => {
+    const onRemoveAttachment = vi.fn();
+    render(
+      <MemoryRouter>
+        <ChatPanel {...baseProps} attachments={[{ id: 'a1', name: 'notes.txt', kind: 'text' }]} onRemoveAttachment={onRemoveAttachment} />
+      </MemoryRouter>
+    );
+    await userEvent.click(screen.getByRole('button', { name: /remove notes.txt/i }));
+    expect(onRemoveAttachment).toHaveBeenCalledWith('a1');
+  });
+
+  it('calls onAddAttachment when the attach button is clicked', async () => {
+    const onAddAttachment = vi.fn();
+    render(
+      <MemoryRouter>
+        <ChatPanel {...baseProps} onAddAttachment={onAddAttachment} />
+      </MemoryRouter>
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Attach a file' }));
+    expect(onAddAttachment).toHaveBeenCalled();
+  });
+
+  it('shows attachError when present', () => {
+    render(
+      <MemoryRouter>
+        <ChatPanel {...baseProps} attachError="can't see images" />
+      </MemoryRouter>
+    );
+    expect(screen.getByText("can't see images")).toBeInTheDocument();
   });
 });

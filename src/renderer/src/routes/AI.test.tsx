@@ -44,6 +44,7 @@ function mockAi(apiKeyConfigured = true) {
     respondToConfirm: vi.fn().mockResolvedValue(undefined),
     getPendingConfirmation: vi.fn().mockResolvedValue(null),
     onConfirmResolved: vi.fn((_cb: (id: string) => void) => () => {}),
+    pickAttachment: vi.fn().mockResolvedValue(null),
     triggerConfirm: (req: { id: string; toolName: string; description: string }) => confirmCb?.(req),
   };
 }
@@ -60,7 +61,7 @@ describe('AI chat view', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Send' }));
 
     const ai = (window as unknown as { smartlife: { ai: ReturnType<typeof mockAi> } }).smartlife.ai;
-    expect(ai.sendMessage).toHaveBeenCalledWith('hi there', null);
+    expect(ai.sendMessage).toHaveBeenCalledWith('hi there', null, []);
     expect(await screen.findByText('hi there')).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText('Hello there!')).toBeInTheDocument());
   });

@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import type { ChatMessage, PendingConfirm } from './useConversation';
+import type { ChatMessage, PendingAttachment, PendingConfirm } from './useConversation';
 
 export interface ChatPanelProps {
   messages: ChatMessage[];
@@ -12,6 +12,10 @@ export interface ChatPanelProps {
   onInputChange: (value: string) => void;
   onSubmit: (event: FormEvent) => void;
   onRespondToConfirm: (approved: boolean) => void;
+  attachments: PendingAttachment[];
+  attachError: string | null;
+  onAddAttachment: () => void;
+  onRemoveAttachment: (id: string) => void;
   /** Called before navigating to Settings from the empty state — lets AIDock close itself first. */
   onNavigateAway?: () => void;
 }
@@ -26,6 +30,10 @@ export function ChatPanel({
   onInputChange,
   onSubmit,
   onRespondToConfirm,
+  attachments,
+  attachError,
+  onAddAttachment,
+  onRemoveAttachment,
   onNavigateAway,
 }: ChatPanelProps) {
   const navigate = useNavigate();
@@ -118,7 +126,38 @@ export function ChatPanel({
           </div>
         )}
       </div>
+      {(attachments.length > 0 || attachError) && (
+        <div className="flex flex-wrap items-center gap-2 px-4 pt-3">
+          {attachments.map((attachment) => (
+            <span
+              key={attachment.id}
+              className="flex items-center gap-1 rounded-md px-2 py-1 text-xs"
+              style={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+            >
+              {attachment.name}
+              <button
+                type="button"
+                onClick={() => onRemoveAttachment(attachment.id)}
+                aria-label={`Remove ${attachment.name}`}
+                style={{ color: 'var(--color-text-muted)' }}
+              >
+                ×
+              </button>
+            </span>
+          ))}
+          {attachError && <span style={{ color: '#EF4444', fontSize: 12 }}>{attachError}</span>}
+        </div>
+      )}
       <form onSubmit={onSubmit} className="flex gap-2 p-4" style={{ borderTop: '1px solid var(--color-border)' }}>
+        <button
+          type="button"
+          onClick={onAddAttachment}
+          aria-label="Attach a file"
+          className="rounded-md px-3 py-2 text-sm"
+          style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text)', border: '1px solid var(--color-border)' }}
+        >
+          Attach
+        </button>
         <input
           value={input}
           onChange={(event) => onInputChange(event.target.value)}

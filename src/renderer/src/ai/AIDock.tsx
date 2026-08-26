@@ -58,6 +58,10 @@ export function AIDock({ onClose }: { onClose: () => void }): React.JSX.Element 
           onSubmit={handleSubmit}
           onRespondToConfirm={conversation.respondToConfirm}
           onNavigateAway={onClose}
+          attachments={conversation.attachments}
+          attachError={conversation.attachError}
+          onAddAttachment={conversation.addAttachment}
+          onRemoveAttachment={conversation.removeAttachment}
         />
       </div>
     </aside>

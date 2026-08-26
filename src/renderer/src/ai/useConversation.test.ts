@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { useConversation } from './useConversation';
 
 const ai = {
@@ -11,6 +11,7 @@ const ai = {
   respondToConfirm: vi.fn(),
   getPendingConfirmation: vi.fn(),
   onConfirmResolved: vi.fn((_cb: (id: string) => void) => () => {}),
+  pickAttachment: vi.fn(),
 };
 
 beforeEach(() => {
@@ -23,6 +24,7 @@ beforeEach(() => {
   ai.onConfirmRequest.mockReturnValue(() => {});
   ai.onConfirmResolved.mockReturnValue(() => {});
   ai.respondToConfirm.mockResolvedValue(undefined);
+  ai.sendMessage.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -154,5 +156,70 @@ describe('useConversation — provider-switched stream event', () => {
       expect(assistantMessages[0].text).toBe('Hello, Im working on');
       expect(assistantMessages[1].text).toBe('I can help with that.');
     });
+  });
+});
+
+describe('useConversation — attachments', () => {
+  it('addAttachment appends a successful pick result to attachments', async () => {
+    ai.pickAttachment.mockResolvedValue({ ok: true, id: 'attach-1', name: 'notes.txt', kind: 'text' });
+    const { result } = renderHook(() => useConversation());
+
+    await act(async () => {
+      await result.current.addAttachment();
+    });
+
+    expect(result.current.attachments).toEqual([{ id: 'attach-1', name: 'notes.txt', kind: 'text' }]);
+  });
+
+  it('addAttachment sets attachError and adds nothing when the pick fails', async () => {
+    ai.pickAttachment.mockResolvedValue({ ok: false, reason: "can't see images" });
+    const { result } = renderHook(() => useConversation());
+
+    await act(async () => {
+      await result.current.addAttachment();
+    });
+
+    expect(result.current.attachments).toEqual([]);
+    expect(result.current.attachError).toBe("can't see images");
+  });
+
+  it('addAttachment does nothing when the dialog is cancelled (null result)', async () => {
+    ai.pickAttachment.mockResolvedValue(null);
+    const { result } = renderHook(() => useConversation());
+
+    await act(async () => {
+      await result.current.addAttachment();
+    });
+
+    expect(result.current.attachments).toEqual([]);
+  });
+
+  it('removeAttachment removes one attachment by id', async () => {
+    ai.pickAttachment.mockResolvedValue({ ok: true, id: 'attach-1', name: 'notes.txt', kind: 'text' });
+    const { result } = renderHook(() => useConversation());
+    await act(async () => {
+      await result.current.addAttachment();
+    });
+
+    act(() => {
+      result.current.removeAttachment('attach-1');
+    });
+
+    expect(result.current.attachments).toEqual([]);
+  });
+
+  it('sendMessage passes the current attachment ids and clears them afterward', async () => {
+    ai.pickAttachment.mockResolvedValue({ ok: true, id: 'attach-1', name: 'notes.txt', kind: 'text' });
+    const { result } = renderHook(() => useConversation());
+    await act(async () => {
+      await result.current.addAttachment();
+    });
+
+    act(() => {
+      result.current.sendMessage('hi');
+    });
+
+    expect(ai.sendMessage).toHaveBeenCalledWith('hi', null, ['attach-1']);
+    expect(result.current.attachments).toEqual([]);
   });
 });

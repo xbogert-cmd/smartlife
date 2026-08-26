@@ -20,6 +20,7 @@ beforeEach(() => {
       respondToConfirm: vi.fn().mockResolvedValue(undefined),
       getPendingConfirmation: vi.fn().mockResolvedValue(null),
       onConfirmResolved: vi.fn(() => () => {}),
+      pickAttachment: vi.fn().mockResolvedValue(null),
     },
     browser: { suspend, resume },
   };
