@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
-import { getRanking, setRanking } from './providerRanking';
+import { getRanking, seedRankingIfEmpty, setRanking } from './providerRanking';
 
 function makeDb(): Database.Database {
   const db = new Database(':memory:');
@@ -55,5 +55,20 @@ describe('provider ranking', () => {
       { rank: 0, provider: 'gemini' },
       { rank: 1, provider: 'anthropic' },
     ]);
+  });
+});
+
+describe('seedRankingIfEmpty', () => {
+  it('adds the entry when the list is currently empty', () => {
+    const db = makeDb();
+    seedRankingIfEmpty(db, { providerId: 'anthropic', model: 'claude-haiku-4-5-20251001' });
+    expect(getRanking(db)).toEqual([{ providerId: 'anthropic', model: 'claude-haiku-4-5-20251001' }]);
+  });
+
+  it('does nothing when the list already has entries, even a single unrelated one', () => {
+    const db = makeDb();
+    setRanking(db, [{ providerId: 'gemini', model: 'gemini-2.5-pro' }]);
+    seedRankingIfEmpty(db, { providerId: 'anthropic', model: 'claude-haiku-4-5-20251001' });
+    expect(getRanking(db)).toEqual([{ providerId: 'gemini', model: 'gemini-2.5-pro' }]);
   });
 });

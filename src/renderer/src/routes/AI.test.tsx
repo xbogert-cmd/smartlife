@@ -76,11 +76,11 @@ describe('AI chat view', () => {
     expect(ai.respondToConfirm).toHaveBeenCalledWith('conf-1', true);
   });
 
-  it('shows a Connect Claude empty state instead of the chat UI when no API key is configured', async () => {
+  it('shows a Connect provider empty state instead of the chat UI when no AI provider is configured', async () => {
     (window as unknown as { smartlife: { ai: ReturnType<typeof mockAi> } }).smartlife = { ai: mockAi(false) };
     renderAI();
 
-    expect(await screen.findByText('Connect Claude in Settings to start chatting.')).toBeInTheDocument();
+    expect(await screen.findByText('Connect an AI provider in Settings to start chatting.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Go to Settings' })).toBeInTheDocument();
     expect(screen.queryByPlaceholderText('Ask SmartLife…')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Send' })).not.toBeInTheDocument();

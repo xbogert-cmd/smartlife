@@ -37,3 +37,17 @@ export function setRanking(db: Database.Database, entries: RankingEntry[]): void
   });
   replace(entries);
 }
+
+/**
+ * Called right after a provider's credentials are saved. Chat is gated on
+ * the ranked list, not on credentials alone (see hasUsableProvider in
+ * router.ts) -- without this, "I added my API key" doesn't actually unlock
+ * chat until the user separately visits the ranked-list builder elsewhere
+ * in Settings, a second, easy-to-miss step. Only fires when the list is
+ * currently empty; a user who has already built a real ranked list never
+ * gets a silent, unrequested entry added underneath it.
+ */
+export function seedRankingIfEmpty(db: Database.Database, entry: RankingEntry): void {
+  if (getRanking(db).length > 0) return;
+  setRanking(db, [entry]);
+}

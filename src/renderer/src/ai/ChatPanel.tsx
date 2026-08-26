@@ -51,9 +51,9 @@ export function ChatPanel({
   if (apiKeyConfigured !== true) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
-        <p style={{ color: 'var(--color-text)' }}>Connect Claude in Settings to start chatting.</p>
+        <p style={{ color: 'var(--color-text)' }}>Connect an AI provider in Settings to start chatting.</p>
         <p style={{ color: 'var(--color-text-muted)', fontSize: 13 }}>
-          Add your Claude API key to unlock the AI assistant.
+          Add a Claude, Gemini, or local Ollama entry to your provider list to unlock the AI assistant.
         </p>
         <button
           type="button"

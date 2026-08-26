@@ -62,6 +62,20 @@ describe('AI provider IPC handlers', () => {
     expect(routerMocks.resetProviderCache).toHaveBeenCalledTimes(1);
   });
 
+  it('seeds the ranked list with the saved Anthropic key when the list was empty, so chat works without a separate visit to the list builder', async () => {
+    const { call } = await setup();
+    expect(await call('ai:get-ranking')).toEqual([]);
+    await call('ai:set-api-key', 'sk-ant-test');
+    expect(await call('ai:get-ranking')).toEqual([{ providerId: 'anthropic', model: 'claude-haiku-4-5-20251001' }]);
+  });
+
+  it('does not touch an already-populated ranked list when a key is saved', async () => {
+    const { call } = await setup();
+    await call('ai:set-ranking', [{ providerId: 'gemini', model: 'gemini-2.5-pro' }]);
+    await call('ai:set-api-key', 'sk-ant-test');
+    expect(await call('ai:get-ranking')).toEqual([{ providerId: 'gemini', model: 'gemini-2.5-pro' }]);
+  });
+
   it('round-trips a Gemini key and resets the provider cache on both save and clear', async () => {
     const { call } = await setup();
     expect(await call('ai:get-gemini-key-status')).toBe(false);
@@ -71,6 +85,13 @@ describe('AI provider IPC handlers', () => {
     await call('ai:clear-gemini-key');
     expect(await call('ai:get-gemini-key-status')).toBe(false);
     expect(routerMocks.resetProviderCache).toHaveBeenCalledTimes(2);
+  });
+
+  it('seeds the ranked list with the saved Gemini key when the list was empty', async () => {
+    const { call } = await setup();
+    expect(await call('ai:get-ranking')).toEqual([]);
+    await call('ai:set-gemini-key', 'gm-test-key');
+    expect(await call('ai:get-ranking')).toEqual([{ providerId: 'gemini', model: 'gemini-2.5-flash' }]);
   });
 
   it('round-trips the Ollama endpoint and resets the provider cache on save', async () => {

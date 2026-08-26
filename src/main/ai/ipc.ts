@@ -9,7 +9,7 @@ import { handleSendMessage } from './chatController';
 import type { ViewContext } from './viewContext';
 import { setActiveNavigator } from './navigatorRegistry';
 import { clearGeminiKey, clearPinnedEntry, getOllamaEndpoint, getPinnedEntry, hasGeminiKey, setGeminiKey, setOllamaEndpoint, setPinnedEntry, type PinnedEntry } from './providerConfig';
-import { getRanking, setRanking, type RankingEntry } from './providerRanking';
+import { getRanking, seedRankingIfEmpty, setRanking, type RankingEntry } from './providerRanking';
 import { CATALOG } from './providers/catalog';
 import { listOllamaModels } from './providers/ollama';
 import type { ProviderId } from './providers/types';
@@ -25,6 +25,7 @@ export function registerAiIpcHandlers(db: Database.Database, getWindow: () => Br
   ipcMain.handle('ai:get-api-key-status', () => hasStoredApiKey(db));
   ipcMain.handle('ai:set-api-key', (_event, apiKey: string) => {
     setStoredApiKey(db, apiKey);
+    seedRankingIfEmpty(db, { providerId: 'anthropic', model: 'claude-haiku-4-5-20251001' });
     resetProviderCache();
   });
 
@@ -50,6 +51,7 @@ export function registerAiIpcHandlers(db: Database.Database, getWindow: () => Br
   ipcMain.handle('ai:get-gemini-key-status', () => hasGeminiKey(db));
   ipcMain.handle('ai:set-gemini-key', (_event, apiKey: string) => {
     setGeminiKey(db, apiKey);
+    seedRankingIfEmpty(db, { providerId: 'gemini', model: 'gemini-2.5-flash' });
     resetProviderCache();
   });
   ipcMain.handle('ai:clear-gemini-key', () => {
