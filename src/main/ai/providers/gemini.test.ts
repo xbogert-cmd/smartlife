@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ApiError, GoogleGenAI } from '@google/genai';
-import type { ToolDefinition } from '../tools/types';
+import type { ToolContext, ToolDefinition } from '../tools/types';
 import { createGeminiProvider, describeError, toFunctionDeclarations, toGeminiHistory } from './gemini';
 
 vi.mock('@google/genai', async (importOriginal) => {
@@ -43,7 +43,7 @@ describe('toFunctionDeclarations', () => {
       },
       run: async () => 'sunny',
     };
-    expect(toFunctionDeclarations([tool])).toEqual([
+    expect(toFunctionDeclarations([tool], true)).toEqual([
       {
         name: 'get_weather',
         description: 'Gets the weather for a city',
@@ -147,5 +147,146 @@ describe('createGeminiProvider — streamTurn tool-calling loop', () => {
     // function call with no text).
     expect(result).toEqual([{ type: 'text', text: '' }]);
     expect(sendMessageStream).toHaveBeenCalledTimes(20);
+  });
+});
+
+describe('toFunctionDeclarations vision gating', () => {
+  const tools: ToolDefinition[] = [
+    { name: 'a', tier: 'READ', label: 'A', schema: { name: 'a', description: '', input_schema: { type: 'object', properties: {} } }, run: async () => 'x' },
+    {
+      name: 'browser_screenshot',
+      tier: 'READ',
+      label: 'Screenshot',
+      schema: { name: 'browser_screenshot', description: '', input_schema: { type: 'object', properties: {} } },
+      run: async () => 'x',
+    },
+  ];
+
+  it('drops browser_screenshot when visionCapable is false', () => {
+    expect(toFunctionDeclarations(tools, false).map((d) => d.name)).toEqual(['a']);
+  });
+
+  it('keeps browser_screenshot when visionCapable is true', () => {
+    expect(toFunctionDeclarations(tools, true).map((d) => d.name)).toEqual(['a', 'browser_screenshot']);
+  });
+});
+
+describe('search grounding', () => {
+  it('adds googleSearch to the tools config when supportsWebSearch is true for the model', async () => {
+    const sendMessageStream = vi.fn().mockResolvedValue(fakeStream([{ text: 'hi' }]));
+    const create = vi.fn().mockReturnValue({ sendMessageStream });
+    vi.mocked(GoogleGenAI).mockReturnValue({ chats: { create } } as never);
+
+    const provider = createGeminiProvider('test-key', 'gemini-2.5-flash'); // supportsWebSearch: true per catalog.ts
+    await provider.streamTurn({ system: 's', history: [], userText: 'hi', tools: [], ctx: fakeCtx(), onEvent: vi.fn() });
+
+    const configTools = create.mock.calls[0][0].config.tools as Array<Record<string, unknown>>;
+    expect(configTools.some((t) => 'googleSearch' in t)).toBe(true);
+  });
+
+  it('omits googleSearch and sends no tools config at all for a model not in the static catalog (findCatalogEntry returns undefined, defaulting supportsWebSearch to false)', async () => {
+    const sendMessageStream = vi.fn().mockResolvedValue(fakeStream([{ text: 'hi' }]));
+    const create = vi.fn().mockReturnValue({ sendMessageStream });
+    vi.mocked(GoogleGenAI).mockReturnValue({ chats: { create } } as never);
+
+    const provider = createGeminiProvider('test-key', 'some-future-gemini-model');
+    await provider.streamTurn({ system: 's', history: [], userText: 'hi', tools: [], ctx: fakeCtx(), onEvent: vi.fn() });
+
+    expect(create.mock.calls[0][0].config.tools).toBeUndefined();
+  });
+});
+
+describe('attachments', () => {
+  it('folds text and image attachments into the first sendMessageStream call as extra Parts', async () => {
+    const sendMessageStream = vi.fn().mockResolvedValue(fakeStream([{ text: 'ok' }]));
+    const create = vi.fn().mockReturnValue({ sendMessageStream });
+    vi.mocked(GoogleGenAI).mockReturnValue({ chats: { create } } as never);
+
+    const provider = createGeminiProvider('test-key', 'gemini-2.5-flash');
+    await provider.streamTurn({
+      system: 's',
+      history: [],
+      userText: 'summarize this',
+      attachments: [
+        { type: 'text', text: 'pdf text' },
+        { type: 'image', mimeType: 'image/png', data: 'abc' },
+      ],
+      tools: [],
+      ctx: fakeCtx(),
+      onEvent: vi.fn(),
+    });
+
+    expect(sendMessageStream.mock.calls[0][0].message).toEqual([
+      { text: 'summarize this' },
+      { text: 'pdf text' },
+      { inlineData: { mimeType: 'image/png', data: 'abc' } },
+    ]);
+  });
+
+  it('sends userText as a plain string when there are no attachments (unchanged behavior)', async () => {
+    const sendMessageStream = vi.fn().mockResolvedValue(fakeStream([{ text: 'ok' }]));
+    const create = vi.fn().mockReturnValue({ sendMessageStream });
+    vi.mocked(GoogleGenAI).mockReturnValue({ chats: { create } } as never);
+
+    const provider = createGeminiProvider('test-key', 'gemini-2.5-flash');
+    await provider.streamTurn({ system: 's', history: [], userText: 'hi', tools: [], ctx: fakeCtx(), onEvent: vi.fn() });
+
+    expect(sendMessageStream.mock.calls[0][0].message).toBe('hi');
+  });
+});
+
+describe('screenshot round-trip', () => {
+  it('injects a pending screenshot image as an inlineData Part in the round AFTER the tool call that attached it', async () => {
+    const screenshotTool: ToolDefinition = {
+      name: 'browser_screenshot',
+      tier: 'READ',
+      label: 'Screenshot',
+      schema: { name: 'browser_screenshot', description: '', input_schema: { type: 'object', properties: {} } },
+      run: async (_input, toolCtx) => {
+        toolCtx.attachImage?.({ type: 'image', mimeType: 'image/png', data: 'xyz' });
+        return 'Screenshot captured.';
+      },
+    };
+    const sendMessageStream = vi
+      .fn()
+      .mockResolvedValueOnce(fakeStream([{ functionCalls: [{ name: 'browser_screenshot', args: {} }] }]))
+      .mockResolvedValueOnce(fakeStream([{ text: 'I can see the page now.' }]));
+    const create = vi.fn().mockReturnValue({ sendMessageStream });
+    vi.mocked(GoogleGenAI).mockReturnValue({ chats: { create } } as never);
+
+    const ctx = fakeCtx() as ToolContext;
+    ctx.pendingImages = [];
+    ctx.attachImage = (block) => ctx.pendingImages!.push(block);
+
+    const provider = createGeminiProvider('test-key', 'gemini-2.5-flash');
+    const result = await provider.streamTurn({
+      system: 's',
+      history: [],
+      userText: 'what do you see?',
+      tools: [screenshotTool],
+      ctx,
+      onEvent: vi.fn(),
+    });
+
+    expect(result).toEqual([{ type: 'text', text: 'I can see the page now.' }]);
+    expect(sendMessageStream.mock.calls[1][0].message).toEqual([
+      { functionResponse: { name: 'browser_screenshot', response: { output: 'Screenshot captured.' } } },
+      { inlineData: { mimeType: 'image/png', data: 'xyz' } },
+    ]);
+    expect(ctx.pendingImages).toEqual([]);
+  });
+
+  it('resets ctx.pendingImages at the start of streamTurn so a stale image from a prior failed attempt never leaks in', async () => {
+    const sendMessageStream = vi.fn().mockResolvedValue(fakeStream([{ text: 'ok' }]));
+    const create = vi.fn().mockReturnValue({ sendMessageStream });
+    vi.mocked(GoogleGenAI).mockReturnValue({ chats: { create } } as never);
+
+    const ctx = fakeCtx() as ToolContext;
+    ctx.pendingImages = [{ type: 'image', mimeType: 'image/png', data: 'stale' }];
+
+    const provider = createGeminiProvider('test-key', 'gemini-2.5-flash');
+    await provider.streamTurn({ system: 's', history: [], userText: 'hi', tools: [], ctx, onEvent: vi.fn() });
+
+    expect(ctx.pendingImages).toEqual([]);
   });
 });

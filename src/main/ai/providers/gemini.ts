@@ -1,13 +1,29 @@
 import { ApiError, GoogleGenAI, type Content, type FunctionDeclaration, type Part } from '@google/genai';
 import type { ToolContext, ToolDefinition } from '../tools/types';
-import { ProviderError, type AIProvider, type CanonicalTextBlock, type StreamEvent, type TurnMessage } from './types';
+import { findCatalogEntry } from './catalog';
+import {
+  ProviderError,
+  type AIProvider,
+  type CanonicalContentBlock,
+  type CanonicalTextBlock,
+  type StreamEvent,
+  type TurnMessage,
+} from './types';
 
-export function toFunctionDeclarations(tools: ToolDefinition[]): FunctionDeclaration[] {
-  return tools.map((tool) => ({
-    name: tool.schema.name,
-    description: tool.schema.description,
-    parametersJsonSchema: tool.schema.input_schema,
-  }));
+export function toFunctionDeclarations(tools: ToolDefinition[], visionCapable: boolean): FunctionDeclaration[] {
+  return tools
+    .filter((tool) => visionCapable || tool.schema.name !== 'browser_screenshot')
+    .map((tool) => ({
+      name: tool.schema.name,
+      description: tool.schema.description,
+      parametersJsonSchema: tool.schema.input_schema,
+    }));
+}
+
+function attachmentsToParts(attachments: CanonicalContentBlock[]): Part[] {
+  return attachments.map((block) =>
+    block.type === 'text' ? { text: block.text } : { inlineData: { mimeType: block.mimeType, data: block.data } }
+  );
 }
 
 /** Only plain text blocks ever cross the history boundary (see
@@ -50,21 +66,31 @@ export function createGeminiProvider(apiKey: string, model: string): AIProvider 
   const client = new GoogleGenAI({ apiKey });
 
   return {
-    async streamTurn({ system, history, userText, tools, ctx, onEvent }) {
+    async streamTurn({ system, history, userText, attachments, tools, ctx, onEvent }) {
+      if (ctx.pendingImages) ctx.pendingImages.length = 0;
+
       const toolLabels = new Map(tools.map((tool) => [tool.schema.name, tool.label]));
-      const functionDeclarations = toFunctionDeclarations(tools);
+      const visionCapable = findCatalogEntry('gemini', model)?.supportsVision ?? false;
+      const webSearchCapable = findCatalogEntry('gemini', model)?.supportsWebSearch ?? false;
+      const functionDeclarations = toFunctionDeclarations(tools, visionCapable);
+
+      const configTools = [
+        ...(functionDeclarations.length > 0 ? [{ functionDeclarations }] : []),
+        ...(webSearchCapable ? [{ googleSearch: {} }] : []),
+      ];
 
       const chat = client.chats.create({
         model,
         history: toGeminiHistory(history),
         config: {
           systemInstruction: system,
-          tools: functionDeclarations.length > 0 ? [{ functionDeclarations }] : undefined,
+          tools: configTools.length > 0 ? configTools : undefined,
         },
       });
 
       let finalText = '';
-      let nextMessage: Part[] | string = userText;
+      let nextMessage: Part[] | string =
+        attachments && attachments.length > 0 ? [{ text: userText }, ...attachmentsToParts(attachments)] : userText;
       // Gemini's tool loop is manual, unlike Anthropic's toolRunner -- each
       // round sends one message and gets back either text or function calls
       // that must be answered before the model will continue. A hard cap
@@ -96,7 +122,7 @@ export function createGeminiProvider(apiKey: string, model: string): AIProvider 
             onEvent({ type: 'tool-status', toolName: call.name, toolLabel } satisfies StreamEvent);
           }
 
-          nextMessage = await Promise.all(
+          const responseParts: Part[] = await Promise.all(
             functionCalls.map(async (call) => ({
               functionResponse: {
                 name: call.name,
@@ -104,6 +130,12 @@ export function createGeminiProvider(apiKey: string, model: string): AIProvider 
               },
             }))
           );
+          const pending = ctx.pendingImages ?? [];
+          if (pending.length > 0) {
+            responseParts.push(...pending.map((image) => ({ inlineData: { mimeType: image.mimeType, data: image.data } })));
+            pending.length = 0;
+          }
+          nextMessage = responseParts;
         }
       } catch (error) {
         const message = describeError(error);
