@@ -188,6 +188,7 @@ const smartlife = {
     clearPinnedEntry: (): Promise<void> => ipcRenderer.invoke('ai:clear-pinned-entry'),
     retryProviderEntry: (providerId: ProviderId, model: string): Promise<void> =>
       ipcRenderer.invoke('ai:retry-provider-entry', providerId, model),
+    hasUsableProvider: (): Promise<boolean> => ipcRenderer.invoke('ai:has-usable-provider'),
   },
   canvas: {
     getStatus: (): Promise<CanvasSyncStatus> => ipcRenderer.invoke('canvas:get-status'),

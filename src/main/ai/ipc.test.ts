@@ -6,6 +6,7 @@ const routerMocks = {
   getProvider: vi.fn(),
   resetProviderCache: vi.fn(),
   retryProviderEntry: vi.fn(),
+  hasUsableProvider: vi.fn(),
 };
 
 vi.mock('electron', () => ({
@@ -50,6 +51,14 @@ describe('AI provider IPC handlers', () => {
     expect((catalog as unknown[]).length).toBeGreaterThan(0);
   });
 
+  it('round-trips the Anthropic key and resets the provider cache on save', async () => {
+    const { call } = await setup();
+    expect(await call('ai:get-api-key-status')).toBe(false);
+    await call('ai:set-api-key', 'sk-ant-test');
+    expect(await call('ai:get-api-key-status')).toBe(true);
+    expect(routerMocks.resetProviderCache).toHaveBeenCalledTimes(1);
+  });
+
   it('round-trips a Gemini key and resets the provider cache on both save and clear', async () => {
     const { call } = await setup();
     expect(await call('ai:get-gemini-key-status')).toBe(false);
@@ -92,5 +101,12 @@ describe('AI provider IPC handlers', () => {
     const { call } = await setup();
     await call('ai:retry-provider-entry', 'anthropic', 'claude-sonnet-5');
     expect(routerMocks.retryProviderEntry).toHaveBeenCalledWith(expect.anything(), 'anthropic', 'claude-sonnet-5');
+  });
+
+  it('delegates ai:has-usable-provider to router.hasUsableProvider and returns its result', async () => {
+    const { call } = await setup();
+    routerMocks.hasUsableProvider.mockReturnValue(true);
+    expect(await call('ai:has-usable-provider')).toBe(true);
+    expect(routerMocks.hasUsableProvider).toHaveBeenCalledWith(expect.anything());
   });
 });

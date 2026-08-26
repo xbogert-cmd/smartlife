@@ -80,6 +80,14 @@ export function resetProviderCache(): void {
   cached = null;
 }
 
+/** Whether at least one ranked entry currently has valid credentials to
+ *  build a real provider from -- used to gate the chat UI on "is anything
+ *  usable" rather than specifically "is an Anthropic key stored", now that
+ *  a user can have a fully working assistant through Gemini or Ollama alone. */
+export function hasUsableProvider(db: Database.Database): boolean {
+  return getRanking(db).some(({ providerId, model }) => buildProvider(db, providerId, model) !== null);
+}
+
 /** Exposes the live FallbackProvider's retry hook to Settings' "retry"
  *  button, if the current provider actually is one (it might be the single
  *  not-configured stub, which has no failure memory to clear). */

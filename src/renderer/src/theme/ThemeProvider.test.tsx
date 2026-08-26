@@ -28,6 +28,7 @@ function mockSmartlife(getValue: 'light' | 'dark' | 'system' = 'dark') {
     ai: {
       getApiKeyStatus: vi.fn().mockResolvedValue(false),
       setApiKey: vi.fn().mockResolvedValue(undefined),
+      hasUsableProvider: vi.fn().mockResolvedValue(false),
       getMode: vi.fn().mockResolvedValue('ask'),
       setMode: vi.fn().mockResolvedValue(undefined),
       sendMessage: vi.fn().mockResolvedValue(undefined),

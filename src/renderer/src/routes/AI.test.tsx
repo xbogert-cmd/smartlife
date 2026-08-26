@@ -19,7 +19,7 @@ function mockAi(apiKeyConfigured = true) {
   let streamCb: StreamCb | null = null;
   let confirmCb: ConfirmCb | null = null;
   return {
-    getApiKeyStatus: vi.fn().mockResolvedValue(apiKeyConfigured),
+    hasUsableProvider: vi.fn().mockResolvedValue(apiKeyConfigured),
     getHistory: vi.fn().mockResolvedValue([]),
     sendMessage: vi.fn().mockImplementation(() => {
       queueMicrotask(() => {

@@ -28,12 +28,17 @@ export function useConversation(view: unknown = null) {
   const [statusLabel, setStatusLabel] = useState<string | null>(null);
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
   const [sending, setSending] = useState(false);
+  // Despite the name, this reflects "is any provider usable" (Anthropic,
+  // Gemini, or Ollama), not specifically an Anthropic key -- see
+  // hasUsableProvider in router.ts. Kept as apiKeyConfigured to avoid a
+  // rename that would touch ChatPanel's prop type and its tests for no
+  // functional benefit.
   const [apiKeyConfigured, setApiKeyConfigured] = useState<boolean | null>(null);
   const streamingIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     window.smartlife.ai
-      .getApiKeyStatus()
+      .hasUsableProvider()
       .then(setApiKeyConfigured)
       .catch(() => setApiKeyConfigured(false));
   }, []);

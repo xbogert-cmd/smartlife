@@ -93,6 +93,40 @@ describe('getProvider', () => {
   });
 });
 
+describe('hasUsableProvider', () => {
+  it('returns false when nothing is ranked', async () => {
+    const { hasUsableProvider } = await import('./router');
+    const db = makeDb();
+    expect(hasUsableProvider(db)).toBe(false);
+  });
+
+  it('returns false when something is ranked but has no valid credentials', async () => {
+    const { hasUsableProvider } = await import('./router');
+    const db = makeDb();
+    setRanking(db, [{ providerId: 'anthropic', model: 'claude-sonnet-5' }]); // no Anthropic key stored
+    expect(hasUsableProvider(db)).toBe(false);
+  });
+
+  it('returns true when a Gemini entry is ranked with a key stored, even with no Anthropic key at all', async () => {
+    const { hasUsableProvider } = await import('./router');
+    const db = makeDb();
+    setGeminiKey(db, 'gm-test');
+    setRanking(db, [
+      { providerId: 'anthropic', model: 'claude-sonnet-5' }, // no Anthropic key stored
+      { providerId: 'gemini', model: 'gemini-2.5-flash' },
+    ]);
+    expect(hasUsableProvider(db)).toBe(true);
+  });
+
+  it('returns true for an Ollama entry, which needs no key', async () => {
+    const { hasUsableProvider } = await import('./router');
+    const db = makeDb();
+    setOllamaEndpoint(db, 'http://192.168.1.50:11434');
+    setRanking(db, [{ providerId: 'ollama', model: 'llama3.1' }]);
+    expect(hasUsableProvider(db)).toBe(true);
+  });
+});
+
 describe('retryProviderEntry', () => {
   it('clears one entry’s failure memory without wiping the whole cache', async () => {
     const { getProvider, resetProviderCache, retryProviderEntry } = await import('./router');

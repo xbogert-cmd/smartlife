@@ -13,7 +13,7 @@ import { getRanking, setRanking, type RankingEntry } from './providerRanking';
 import { CATALOG } from './providers/catalog';
 import { listOllamaModels } from './providers/ollama';
 import type { ProviderId } from './providers/types';
-import { resetProviderCache, retryProviderEntry } from './router';
+import { hasUsableProvider, resetProviderCache, retryProviderEntry } from './router';
 
 export function registerAiIpcHandlers(db: Database.Database, getWindow: () => BrowserWindow | null): void {
   // Published so canvas_open_assignment can move the app to /browser, the
@@ -24,6 +24,7 @@ export function registerAiIpcHandlers(db: Database.Database, getWindow: () => Br
   ipcMain.handle('ai:get-api-key-status', () => hasStoredApiKey(db));
   ipcMain.handle('ai:set-api-key', (_event, apiKey: string) => {
     setStoredApiKey(db, apiKey);
+    resetProviderCache();
   });
 
   ipcMain.handle('ai:get-mode', () => getAiMode(db));
@@ -81,4 +82,6 @@ export function registerAiIpcHandlers(db: Database.Database, getWindow: () => Br
   ipcMain.handle('ai:retry-provider-entry', (_event, providerId: ProviderId, model: string) => {
     retryProviderEntry(db, providerId, model);
   });
+
+  ipcMain.handle('ai:has-usable-provider', () => hasUsableProvider(db));
 }

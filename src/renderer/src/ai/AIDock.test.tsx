@@ -12,7 +12,7 @@ beforeEach(() => {
   vi.stubGlobal('window', window);
   (window as unknown as { smartlife: unknown }).smartlife = {
     ai: {
-      getApiKeyStatus: vi.fn().mockResolvedValue(true),
+      hasUsableProvider: vi.fn().mockResolvedValue(true),
       getHistory: vi.fn().mockResolvedValue([]),
       onStreamEvent: vi.fn().mockReturnValue(() => {}),
       onConfirmRequest: vi.fn().mockReturnValue(() => {}),

@@ -3,7 +3,7 @@ import { renderHook, waitFor } from '@testing-library/react';
 import { useConversation } from './useConversation';
 
 const ai = {
-  getApiKeyStatus: vi.fn(),
+  hasUsableProvider: vi.fn(),
   getHistory: vi.fn(),
   sendMessage: vi.fn(),
   onStreamEvent: vi.fn((_cb: (event: unknown) => void) => () => {}),
@@ -16,7 +16,7 @@ const ai = {
 beforeEach(() => {
   vi.clearAllMocks();
   Object.defineProperty(window, 'smartlife', { value: { ai }, writable: true, configurable: true });
-  ai.getApiKeyStatus.mockResolvedValue(true);
+  ai.hasUsableProvider.mockResolvedValue(true);
   ai.getHistory.mockResolvedValue([]);
   ai.getPendingConfirmation.mockResolvedValue(null);
   ai.onStreamEvent.mockReturnValue(() => {});
@@ -98,6 +98,24 @@ describe('useConversation — pending confirmation recovery', () => {
 
     expect(ai.respondToConfirm).toHaveBeenCalledWith('c1', true);
     await waitFor(() => expect(result.current.pendingConfirm).toBeNull());
+  });
+});
+
+describe('useConversation — apiKeyConfigured reflects any usable provider', () => {
+  it('becomes true from hasUsableProvider even for a Gemini/Ollama-only setup with no Anthropic key', async () => {
+    // The IPC call is ai.hasUsableProvider, not an Anthropic-specific check
+    // -- it resolves true here purely because e.g. Gemini or Ollama is
+    // configured, with no Anthropic key involved at all.
+    ai.hasUsableProvider.mockResolvedValue(true);
+    const { result } = renderHook(() => useConversation());
+    await waitFor(() => expect(result.current.apiKeyConfigured).toBe(true));
+    expect(ai.hasUsableProvider).toHaveBeenCalled();
+  });
+
+  it('becomes false when hasUsableProvider resolves false', async () => {
+    ai.hasUsableProvider.mockResolvedValue(false);
+    const { result } = renderHook(() => useConversation());
+    await waitFor(() => expect(result.current.apiKeyConfigured).toBe(false));
   });
 });
 
