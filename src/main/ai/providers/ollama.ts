@@ -1,5 +1,6 @@
 import type { ToolContext, ToolDefinition } from '../tools/types';
-import { ProviderError, type AIProvider, type CanonicalTextBlock, type StreamEvent, type TurnMessage } from './types';
+import { isKnownGoodForVision } from './catalog';
+import { ProviderError, type AIProvider, type CanonicalContentBlock, type CanonicalTextBlock, type StreamEvent, type TurnMessage } from './types';
 
 interface OllamaTool {
   type: 'function';
@@ -11,6 +12,7 @@ interface OllamaMessage {
   content: string;
   tool_calls?: Array<{ function: { name: string; arguments: Record<string, unknown> } }>;
   tool_name?: string;
+  images?: string[];
 }
 
 interface OllamaChatChunk {
@@ -18,15 +20,17 @@ interface OllamaChatChunk {
   done: boolean;
 }
 
-export function toOllamaTools(tools: ToolDefinition[]): OllamaTool[] {
-  return tools.map((tool) => ({
-    type: 'function',
-    function: {
-      name: tool.schema.name,
-      description: tool.schema.description,
-      parameters: tool.schema.input_schema,
-    },
-  }));
+export function toOllamaTools(tools: ToolDefinition[], visionCapable: boolean): OllamaTool[] {
+  return tools
+    .filter((tool) => visionCapable || tool.schema.name !== 'browser_screenshot')
+    .map((tool) => ({
+      type: 'function',
+      function: {
+        name: tool.schema.name,
+        description: tool.schema.description,
+        parameters: tool.schema.input_schema,
+      },
+    }));
 }
 
 function textOf(content: unknown): string {
@@ -39,12 +43,20 @@ function textOf(content: unknown): string {
     .join('');
 }
 
-export function toOllamaMessages(system: string, history: TurnMessage[], userText: string): OllamaMessage[] {
-  return [
-    { role: 'system', content: system },
-    ...history.map((m) => ({ role: m.role, content: textOf(m.content) }) as OllamaMessage),
-    { role: 'user', content: userText },
-  ];
+export function toOllamaMessages(
+  system: string,
+  history: TurnMessage[],
+  userText: string,
+  attachments: CanonicalContentBlock[] = []
+): OllamaMessage[] {
+  const texts = attachments.filter((a): a is { type: 'text'; text: string } => a.type === 'text').map((a) => a.text);
+  const images = attachments.filter((a): a is { type: 'image'; mimeType: string; data: string } => a.type === 'image').map((a) => a.data);
+  const content = texts.length > 0 ? `${userText}\n\n${texts.join('\n\n')}` : userText;
+
+  const userMessage: OllamaMessage = { role: 'user', content };
+  if (images.length > 0) userMessage.images = images;
+
+  return [{ role: 'system', content: system }, ...history.map((m) => ({ role: m.role, content: textOf(m.content) }) as OllamaMessage), userMessage];
 }
 
 /** Ollama's own body isn't valid JSON as a whole -- one JSON object per
@@ -100,10 +112,13 @@ async function runOneTool(
  */
 export function createOllamaProvider(endpoint: string, model: string): AIProvider {
   return {
-    async streamTurn({ system, history, userText, tools, ctx, onEvent }) {
+    async streamTurn({ system, history, userText, attachments, tools, ctx, onEvent }) {
+      if (ctx.pendingImages) ctx.pendingImages.length = 0;
+
       const toolLabels = new Map(tools.map((tool) => [tool.schema.name, tool.label]));
-      const ollamaTools = toOllamaTools(tools);
-      const messages = toOllamaMessages(system, history, userText);
+      const visionCapable = isKnownGoodForVision(model);
+      const ollamaTools = toOllamaTools(tools, visionCapable);
+      const messages = toOllamaMessages(system, history, userText, attachments);
 
       let finalText = '';
       // Same manual-tool-loop safety valve as gemini.ts -- a hard cap so a
@@ -141,6 +156,12 @@ export function createOllamaProvider(endpoint: string, model: string): AIProvide
             onEvent({ type: 'tool-status', toolName: call.function.name, toolLabel } satisfies StreamEvent);
             const result = await runOneTool(tools, ctx, call.function.name, call.function.arguments);
             messages.push({ role: 'tool', content: result, tool_name: call.function.name });
+          }
+
+          const pending = ctx.pendingImages ?? [];
+          if (pending.length > 0) {
+            messages.push({ role: 'user', content: '(image attached)', images: pending.map((image) => image.data) });
+            pending.length = 0;
           }
         }
       } catch (error) {
