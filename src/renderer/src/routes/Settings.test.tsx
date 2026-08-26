@@ -30,6 +30,19 @@ beforeEach(() => {
       setMode: vi.fn().mockResolvedValue(undefined),
       getPendingConfirmation: vi.fn().mockResolvedValue(null),
       onConfirmResolved: vi.fn(() => () => {}),
+      getGeminiKeyStatus: vi.fn().mockResolvedValue(false),
+      setGeminiKey: vi.fn().mockResolvedValue(undefined),
+      clearGeminiKey: vi.fn().mockResolvedValue(undefined),
+      getOllamaEndpoint: vi.fn().mockResolvedValue('http://localhost:11434'),
+      setOllamaEndpoint: vi.fn().mockResolvedValue(undefined),
+      listOllamaModels: vi.fn().mockResolvedValue([]),
+      getCatalog: vi.fn().mockResolvedValue([]),
+      getRanking: vi.fn().mockResolvedValue([]),
+      setRanking: vi.fn().mockResolvedValue(undefined),
+      getPinnedEntry: vi.fn().mockResolvedValue(null),
+      setPinnedEntry: vi.fn().mockResolvedValue(undefined),
+      clearPinnedEntry: vi.fn().mockResolvedValue(undefined),
+      retryProviderEntry: vi.fn().mockResolvedValue(undefined),
     },
     canvas: {
       getStatus: vi.fn().mockResolvedValue({
@@ -57,45 +70,14 @@ beforeEach(() => {
   } as unknown as typeof window.smartlife;
 });
 
-describe('Settings — API key', () => {
-  it('shows not-connected status, saves a key, and shows connected', async () => {
+describe('Settings — AI Providers', () => {
+  it('renders the AI Providers settings region', async () => {
     render(
       <ThemeProvider>
         <Settings />
       </ThemeProvider>
     );
-
-    // Scoped to "Claude API key" specifically — the Settings page also has a
-    // Canvas connection status that renders its own "— not connected" text.
-    expect(await screen.findByText(/claude api key.*not connected/i)).toBeInTheDocument();
-
-    // Scoped to the field's own container — the Settings page now also has a
-    // Canvas block with its own "Save" button, so a bare getByRole('button',
-    // { name: 'Save' }) is ambiguous.
-    const apiKeyInput = screen.getByPlaceholderText('sk-ant-...');
-    await userEvent.type(apiKeyInput, 'sk-ant-test-123');
-    await userEvent.click(within(apiKeyInput.parentElement as HTMLElement).getByRole('button', { name: 'Save' }));
-
-    await waitFor(() => expect(window.smartlife.ai.setApiKey).toHaveBeenCalledWith('sk-ant-test-123'));
-    expect(await screen.findByText(/— connected/)).toBeInTheDocument();
-  });
-
-  it('shows an error message when saving fails', async () => {
-    (window.smartlife.ai.setApiKey as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
-      new Error('Secure storage is not available on this system.')
-    );
-    render(
-      <ThemeProvider>
-        <Settings />
-      </ThemeProvider>
-    );
-
-    await screen.findByText(/claude api key.*not connected/i);
-    const apiKeyInput = screen.getByPlaceholderText('sk-ant-...');
-    await userEvent.type(apiKeyInput, 'sk-ant-test-123');
-    await userEvent.click(within(apiKeyInput.parentElement as HTMLElement).getByRole('button', { name: 'Save' }));
-
-    expect(await screen.findByText('Secure storage is not available on this system.')).toBeInTheDocument();
+    expect(await screen.findByRole('region', { name: 'AI Providers settings' })).toBeInTheDocument();
   });
 });
 
@@ -111,7 +93,7 @@ describe('Settings — Canvas', () => {
     await screen.findByRole('heading', { name: 'Settings' });
   });
 
-  // The Claude API key block above also has a "Save" button, so Canvas's own
+  // The AI Providers section above also has "Save" buttons, so Canvas's own
   // Save/Test-connection controls are queried scoped to this labeled region
   // rather than via bare screen.getByRole, which would be ambiguous.
   function canvasRegion(): HTMLElement {
