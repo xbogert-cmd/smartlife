@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { AIProvidersSection } from './AIProvidersSection';
 
@@ -14,6 +14,16 @@ beforeEach(() => {
       getOllamaEndpoint: vi.fn().mockResolvedValue('http://localhost:11434'),
       setOllamaEndpoint: vi.fn().mockResolvedValue(undefined),
       listOllamaModels: vi.fn().mockResolvedValue([]),
+      getCatalog: vi.fn().mockResolvedValue([
+        { providerId: 'anthropic', model: 'claude-sonnet-5', displayName: 'Claude Sonnet 5', costRank: 3 },
+        { providerId: 'gemini', model: 'gemini-2.5-flash', displayName: 'Gemini 2.5 Flash', costRank: 1 },
+      ]),
+      getRanking: vi.fn().mockResolvedValue([]),
+      setRanking: vi.fn().mockResolvedValue(undefined),
+      getPinnedEntry: vi.fn().mockResolvedValue(null),
+      setPinnedEntry: vi.fn().mockResolvedValue(undefined),
+      clearPinnedEntry: vi.fn().mockResolvedValue(undefined),
+      retryProviderEntry: vi.fn().mockResolvedValue(undefined),
     },
   } as unknown as typeof window.smartlife;
 });
@@ -74,5 +84,98 @@ describe('AIProvidersSection — credentials', () => {
     render(<AIProvidersSection />);
     await userEvent.click(screen.getByRole('button', { name: 'Test Ollama connection' }));
     expect(await screen.findByText(/couldn.t reach ollama/i)).toBeInTheDocument();
+  });
+});
+
+describe('AIProvidersSection — fallback ranking', () => {
+  it('adds a catalog entry to the ranked list', async () => {
+    render(<AIProvidersSection />);
+    await screen.findByText(/claude api key/i);
+
+    await userEvent.selectOptions(screen.getByLabelText('Provider to add'), 'gemini');
+    await userEvent.selectOptions(screen.getByLabelText('Model to add'), 'gemini-2.5-flash');
+    await userEvent.click(screen.getByRole('button', { name: 'Add to list' }));
+
+    await waitFor(() =>
+      expect(window.smartlife.ai.setRanking).toHaveBeenCalledWith([{ providerId: 'gemini', model: 'gemini-2.5-flash' }])
+    );
+    // Note: deviation from the brief — scoped to the ranked list because "Gemini 2.5 Flash" also
+    // legitimately appears as an <option> in the "Model to add" and "Active model" selects, so an
+    // unscoped screen.findByText matches multiple elements.
+    expect(await within(screen.getByRole('list')).findByText(/gemini 2.5 flash/i)).toBeInTheDocument();
+  });
+
+  it('reorders the list with the up/down controls', async () => {
+    vi.mocked(window.smartlife.ai.getRanking).mockResolvedValue([
+      { providerId: 'anthropic', model: 'claude-sonnet-5' },
+      { providerId: 'gemini', model: 'gemini-2.5-flash' },
+    ]);
+    render(<AIProvidersSection />);
+    // Note: deviation from the brief — scoped to the ranked list, same reason as above.
+    await within(screen.getByRole('list')).findByText(/claude sonnet 5/i);
+
+    await userEvent.click(screen.getByRole('button', { name: /move gemini 2.5 flash up/i }));
+
+    await waitFor(() =>
+      expect(window.smartlife.ai.setRanking).toHaveBeenCalledWith([
+        { providerId: 'gemini', model: 'gemini-2.5-flash' },
+        { providerId: 'anthropic', model: 'claude-sonnet-5' },
+      ])
+    );
+  });
+
+  it('removes an entry from the list', async () => {
+    vi.mocked(window.smartlife.ai.getRanking).mockResolvedValue([{ providerId: 'anthropic', model: 'claude-sonnet-5' }]);
+    render(<AIProvidersSection />);
+    // Note: deviation from the brief — scoped to the ranked list, same reason as above.
+    await within(screen.getByRole('list')).findByText(/claude sonnet 5/i);
+
+    await userEvent.click(screen.getByRole('button', { name: /remove claude sonnet 5/i }));
+
+    await waitFor(() => expect(window.smartlife.ai.setRanking).toHaveBeenCalledWith([]));
+  });
+
+  it('warns inline for an Ollama model not known to support tools well, without blocking it', async () => {
+    vi.mocked(window.smartlife.ai.listOllamaModels).mockResolvedValue([{ name: 'tinyllama' }]);
+    render(<AIProvidersSection />);
+    await screen.findByText(/claude api key/i);
+
+    await userEvent.selectOptions(screen.getByLabelText('Provider to add'), 'ollama');
+    expect(screen.getByRole('option', { name: /tinyllama.*may not support tools well/i })).toBeInTheDocument();
+  });
+
+  it('pins a specific entry as the active model instead of Auto', async () => {
+    vi.mocked(window.smartlife.ai.getRanking).mockResolvedValue([{ providerId: 'anthropic', model: 'claude-sonnet-5' }]);
+    render(<AIProvidersSection />);
+    // Note: deviation from the brief — scoped to the ranked list, same reason as above.
+    await within(screen.getByRole('list')).findByText(/claude sonnet 5/i);
+
+    await userEvent.selectOptions(screen.getByLabelText('Active model'), 'anthropic:claude-sonnet-5');
+
+    await waitFor(() =>
+      expect(window.smartlife.ai.setPinnedEntry).toHaveBeenCalledWith({ providerId: 'anthropic', model: 'claude-sonnet-5' })
+    );
+  });
+
+  it('clears the pin back to Auto', async () => {
+    vi.mocked(window.smartlife.ai.getPinnedEntry).mockResolvedValue({ providerId: 'anthropic', model: 'claude-sonnet-5' });
+    vi.mocked(window.smartlife.ai.getRanking).mockResolvedValue([{ providerId: 'anthropic', model: 'claude-sonnet-5' }]);
+    render(<AIProvidersSection />);
+    await waitFor(() => expect(screen.getByLabelText('Active model')).toHaveValue('anthropic:claude-sonnet-5'));
+
+    await userEvent.selectOptions(screen.getByLabelText('Active model'), 'auto');
+
+    await waitFor(() => expect(window.smartlife.ai.clearPinnedEntry).toHaveBeenCalled());
+  });
+
+  it('retries a failed entry', async () => {
+    vi.mocked(window.smartlife.ai.getRanking).mockResolvedValue([{ providerId: 'anthropic', model: 'claude-sonnet-5' }]);
+    render(<AIProvidersSection />);
+    // Note: deviation from the brief — scoped to the ranked list, same reason as above.
+    await within(screen.getByRole('list')).findByText(/claude sonnet 5/i);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
+
+    expect(window.smartlife.ai.retryProviderEntry).toHaveBeenCalledWith('anthropic', 'claude-sonnet-5');
   });
 });
