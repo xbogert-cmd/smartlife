@@ -127,8 +127,8 @@ describe('hasUsableProvider', () => {
   });
 });
 
-describe('retryProviderEntry', () => {
-  it('clears one entry’s failure memory without wiping the whole cache', async () => {
+describe("retryProviderEntry", () => {
+  it("clears one entry's failure memory without wiping the whole cache", async () => {
     const { getProvider, resetProviderCache, retryProviderEntry } = await import('./router');
     const db = makeDb();
     setStoredApiKey(db, 'sk-ant-test');
@@ -143,5 +143,42 @@ describe('retryProviderEntry', () => {
     const after = getProvider(db);
     // retryProviderEntry must not have reset the whole cache -- same instance.
     expect(before).toBe(after);
+  });
+});
+
+describe("getActiveCapabilities", () => {
+  it("reflects the starting (first-ranked) entry's catalog flags", async () => {
+    const { getActiveCapabilities } = await import('./router');
+    const db = makeDb();
+    setStoredApiKey(db, 'sk-ant-test');
+    setRanking(db, [{ providerId: 'anthropic', model: 'claude-haiku-4-5-20251001' }]);
+    expect(getActiveCapabilities(db)).toEqual({ supportsVision: true, supportsWebSearch: false });
+  });
+
+  it("prefers the pinned entry over ranking[0] when a pin is set", async () => {
+    const { getActiveCapabilities } = await import('./router');
+    const { setPinnedEntry } = await import('./providerConfig');
+    const db = makeDb();
+    setStoredApiKey(db, 'sk-ant-test');
+    setRanking(db, [
+      { providerId: 'anthropic', model: 'claude-haiku-4-5-20251001' },
+      { providerId: 'anthropic', model: 'claude-sonnet-5' },
+    ]);
+    setPinnedEntry(db, { providerId: 'anthropic', model: 'claude-sonnet-5' });
+    expect(getActiveCapabilities(db).supportsWebSearch).toBe(true);
+  });
+
+  it("detects Ollama vision support by model-name prefix, and never offers web search", async () => {
+    const { getActiveCapabilities } = await import('./router');
+    const db = makeDb();
+    setOllamaEndpoint(db, 'http://localhost:11434');
+    setRanking(db, [{ providerId: 'ollama', model: 'llava:13b' }]);
+    expect(getActiveCapabilities(db)).toEqual({ supportsVision: true, supportsWebSearch: false });
+  });
+
+  it("returns both false when nothing is ranked", async () => {
+    const { getActiveCapabilities } = await import('./router');
+    const db = makeDb();
+    expect(getActiveCapabilities(db)).toEqual({ supportsVision: false, supportsWebSearch: false });
   });
 });

@@ -2,7 +2,7 @@ import type Database from 'better-sqlite3';
 import { getStoredApiKey } from './apiKey';
 import { getGeminiKey, getOllamaEndpoint, getPinnedEntry } from './providerConfig';
 import { getRanking } from './providerRanking';
-import { OLLAMA_COST_RANK, findCatalogEntry } from './providers/catalog';
+import { OLLAMA_COST_RANK, findCatalogEntry, isKnownGoodForVision } from './providers/catalog';
 import { createClaudeProvider } from './providers/claude';
 import { createFallbackProvider, type RankedEntry } from './providers/fallback';
 import { createGeminiProvider } from './providers/gemini';
@@ -86,6 +86,26 @@ export function resetProviderCache(): void {
  *  a user can have a fully working assistant through Gemini or Ollama alone. */
 export function hasUsableProvider(db: Database.Database): boolean {
   return getRanking(db).some(({ providerId, model }) => buildProvider(db, providerId, model) !== null);
+}
+
+/** What the turn that would start right now could actually do -- used to
+ *  gate the file-attachment picker (disable/explain image files when the
+ *  active entry can't see) before a turn even begins. Looks at the same
+ *  "starting entry" a real FallbackProvider would use (pinned, else
+ *  ranking[0]) without needing credentials to be valid -- this is a UI
+ *  hint, not a security gate; the real gate is each provider adapter's own
+ *  capability check when it actually builds the request. */
+export function getActiveCapabilities(db: Database.Database): { supportsVision: boolean; supportsWebSearch: boolean } {
+  const ranking = getRanking(db);
+  const pinned = getPinnedEntry(db);
+  const starting =
+    (pinned && ranking.find((e) => e.providerId === pinned.providerId && e.model === pinned.model)) ?? ranking[0];
+  if (!starting) return { supportsVision: false, supportsWebSearch: false };
+  if (starting.providerId === 'ollama') {
+    return { supportsVision: isKnownGoodForVision(starting.model), supportsWebSearch: false };
+  }
+  const entry = findCatalogEntry(starting.providerId, starting.model);
+  return { supportsVision: entry?.supportsVision ?? false, supportsWebSearch: entry?.supportsWebSearch ?? false };
 }
 
 /** Exposes the live FallbackProvider's retry hook to Settings' "retry"

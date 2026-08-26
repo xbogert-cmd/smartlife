@@ -1,4 +1,4 @@
-import type { ToolContext, ToolDefinition } from '../tools/types';
+import type { CanonicalImageBlock, ToolContext, ToolDefinition } from '../tools/types';
 
 export interface StreamEvent {
   type: 'text-delta' | 'tool-status' | 'turn-complete' | 'provider-switched';
@@ -27,6 +27,13 @@ export interface CanonicalTextBlock {
   text: string;
 }
 
+export type { CanonicalImageBlock };
+
+/** Turn-scoped input content -- CanonicalTextBlock plus images. Only ever
+ *  used for `attachments` below (uploaded files, screenshots); never what a
+ *  provider returns, and never what crosses the history boundary. */
+export type CanonicalContentBlock = CanonicalTextBlock | CanonicalImageBlock;
+
 export type ProviderId = 'anthropic' | 'gemini' | 'ollama';
 
 /**
@@ -43,6 +50,9 @@ export interface AIProvider {
     system: string;
     history: TurnMessage[];
     userText: string;
+    /** This turn's uploaded files/images, if any -- never persisted, see
+     *  CanonicalContentBlock's doc comment. */
+    attachments?: CanonicalContentBlock[];
     tools: ToolDefinition[];
     ctx: ToolContext;
     onEvent: (event: StreamEvent) => void;
