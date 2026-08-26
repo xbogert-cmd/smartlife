@@ -1,8 +1,10 @@
 // @vitest-environment node
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../db/migrate';
 import { setStoredApiKey } from './apiKey';
+import { setGeminiKey, setOllamaEndpoint } from './providerConfig';
+import { setRanking } from './providerRanking';
 import { ProviderError } from './providers/types';
 
 vi.mock('electron', () => ({
@@ -14,35 +16,98 @@ vi.mock('electron', () => ({
 }));
 
 const INIT_SQL = `create table settings (key text primary key, value text not null);`;
+const RANKING_SQL = `create table ai_provider_ranking (rank integer primary key, provider text not null, model text not null);`;
 
 function makeDb(): Database.Database {
   const db = new Database(':memory:');
-  runMigrations(db, [{ filename: '0001_init.sql', sql: INIT_SQL }]);
+  runMigrations(db, [
+    { filename: '0001_init.sql', sql: INIT_SQL },
+    { filename: '0007_ai_providers.sql', sql: RANKING_SQL },
+  ]);
   return db;
 }
 
+function fakeParams() {
+  return {
+    system: 's',
+    history: [],
+    userText: 'hi',
+    tools: [],
+    ctx: { db: {} as never, conversationId: 'c1', mode: 'ask' as const, requestConfirmation: vi.fn() },
+    onEvent: vi.fn(),
+  };
+}
+
 describe('getProvider', () => {
-  it('throws a ProviderError when no API key is stored', async () => {
-    const { getProvider } = await import('./router');
-    const db = makeDb();
-    const provider = getProvider(db);
-    await expect(
-      provider.streamTurn({
-        system: 's',
-        history: [],
-        userText: 'hi',
-        tools: [],
-        ctx: { db, conversationId: 'c1', mode: 'ask', requestConfirmation: vi.fn() },
-        onEvent: vi.fn(),
-      })
-    ).rejects.toThrow(ProviderError);
+  beforeEach(async () => {
+    const { resetProviderCache } = await import('./router');
+    resetProviderCache();
   });
 
-  it('returns a working Claude provider when an API key is stored', async () => {
+  it('throws when nothing is ranked at all', async () => {
+    const { getProvider } = await import('./router');
+    const db = makeDb();
+    await expect(getProvider(db).streamTurn(fakeParams())).rejects.toThrow(ProviderError);
+  });
+
+  it('skips a ranked entry whose credentials are missing rather than failing the whole list', async () => {
+    const { getProvider } = await import('./router');
+    const db = makeDb();
+    setGeminiKey(db, 'gm-test');
+    setRanking(db, [
+      { providerId: 'anthropic', model: 'claude-sonnet-5' }, // no Anthropic key stored
+      { providerId: 'gemini', model: 'gemini-2.5-flash' },
+    ]);
+    const provider = getProvider(db);
+    expect(typeof provider.streamTurn).toBe('function');
+  });
+
+  it('caches the provider across calls so in-session failure memory survives, until reset', async () => {
     const { getProvider } = await import('./router');
     const db = makeDb();
     setStoredApiKey(db, 'sk-ant-test');
+    setRanking(db, [{ providerId: 'anthropic', model: 'claude-sonnet-5' }]);
+    const first = getProvider(db);
+    const second = getProvider(db);
+    expect(first).toBe(second);
+  });
+
+  it('resetProviderCache forces the next call to rebuild from current settings', async () => {
+    const { getProvider, resetProviderCache } = await import('./router');
+    const db = makeDb();
+    setStoredApiKey(db, 'sk-ant-test');
+    setRanking(db, [{ providerId: 'anthropic', model: 'claude-sonnet-5' }]);
+    const first = getProvider(db);
+    resetProviderCache();
+    const second = getProvider(db);
+    expect(first).not.toBe(second);
+  });
+
+  it('builds an Ollama entry using the configured endpoint, needing no key', async () => {
+    const { getProvider } = await import('./router');
+    const db = makeDb();
+    setOllamaEndpoint(db, 'http://192.168.1.50:11434');
+    setRanking(db, [{ providerId: 'ollama', model: 'llama3.1' }]);
     const provider = getProvider(db);
     expect(typeof provider.streamTurn).toBe('function');
+  });
+});
+
+describe('retryProviderEntry', () => {
+  it('clears one entry’s failure memory without wiping the whole cache', async () => {
+    const { getProvider, resetProviderCache, retryProviderEntry } = await import('./router');
+    const db = makeDb();
+    setStoredApiKey(db, 'sk-ant-test');
+    setGeminiKey(db, 'gm-test');
+    resetProviderCache();
+    setRanking(db, [
+      { providerId: 'anthropic', model: 'claude-sonnet-5' },
+      { providerId: 'gemini', model: 'gemini-2.5-flash' },
+    ]);
+    const before = getProvider(db);
+    retryProviderEntry(db, 'anthropic', 'claude-sonnet-5');
+    const after = getProvider(db);
+    // retryProviderEntry must not have reset the whole cache -- same instance.
+    expect(before).toBe(after);
   });
 });

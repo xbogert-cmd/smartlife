@@ -14,6 +14,7 @@ vi.mock('electron', () => ({
 }));
 
 const INIT_SQL = `create table settings (key text primary key, value text not null);`;
+const AI_PROVIDERS_SQL = `create table ai_provider_ranking (rank integer primary key, provider text not null, model text not null);`;
 const AI_CORE_SQL = `
 create table ai_conversations (id text primary key, title text, created_at text not null default (datetime('now')), updated_at text not null default (datetime('now')));
 create table ai_messages (id text primary key, conversation_id text not null references ai_conversations(id) on delete cascade, role text not null, content text not null, created_at text not null default (datetime('now')));
@@ -48,6 +49,7 @@ function makeDb(): Database.Database {
     { filename: '0001_init.sql', sql: INIT_SQL },
     { filename: '0002_ai_core.sql', sql: AI_CORE_SQL },
     { filename: '0003_canvas.sql', sql: CANVAS_SQL },
+    { filename: '0007_ai_providers.sql', sql: AI_PROVIDERS_SQL },
   ]);
   return db;
 }
