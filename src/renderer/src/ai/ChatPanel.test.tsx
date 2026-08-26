@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it } from 'vitest';
-import { render } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { ChatPanel } from './ChatPanel';
 import type { ChatMessage } from './useConversation';
@@ -61,5 +61,32 @@ describe('ChatPanel scroll position', () => {
     stubScrollHeight(9000);
     rerender(panel(3));
     expect(scrollable.scrollTop).toBe(9000);
+  });
+});
+
+describe('ChatPanel switch notices', () => {
+  it('renders a switch-notice message centered and muted, not as a normal chat bubble', () => {
+    render(
+      <MemoryRouter>
+        <ChatPanel
+          messages={[
+            { id: '1', role: 'assistant', text: 'Partial answer from the first provider' },
+            { id: '2', role: 'assistant', text: 'Switched to Gemini — Claude Sonnet 5 was unavailable (credit balance too low).', kind: 'switch-notice' },
+            { id: '3', role: 'assistant', text: 'Full fresh answer from Gemini' },
+          ]}
+          statusLabel={null}
+          pendingConfirm={null}
+          sending={false}
+          apiKeyConfigured={true}
+          input=""
+          onInputChange={vi.fn()}
+          onSubmit={vi.fn()}
+          onRespondToConfirm={vi.fn()}
+        />
+      </MemoryRouter>
+    );
+    expect(screen.getByText(/switched to gemini/i)).toBeInTheDocument();
+    expect(screen.getByText('Partial answer from the first provider')).toBeInTheDocument();
+    expect(screen.getByText('Full fresh answer from Gemini')).toBeInTheDocument();
   });
 });

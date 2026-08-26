@@ -4,6 +4,7 @@ export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   text: string;
+  kind?: 'switch-notice';
 }
 
 export interface PendingConfirm {
@@ -93,6 +94,19 @@ export function useConversation(view: unknown = null) {
         setStatusLabel(null);
         streamingIdRef.current = null;
         setSending(false);
+      } else if (event.type === 'provider-switched') {
+        // Next text-delta must start a fresh bubble, not append onto the
+        // failed provider's partial text.
+        streamingIdRef.current = null;
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `switch-${Date.now()}-${Math.random()}`,
+            role: 'assistant',
+            text: `Switched to ${event.to} — ${event.from} was unavailable${event.reason ? ` (${event.reason})` : ''}.`,
+            kind: 'switch-notice',
+          },
+        ]);
       }
     });
 

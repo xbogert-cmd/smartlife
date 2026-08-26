@@ -65,23 +65,32 @@ export function ChatPanel({
   return (
     <div className="flex h-full flex-col">
       <div ref={scrollRef} className="flex flex-1 flex-col gap-3 overflow-auto p-6">
-        {messages.map((message) => (
-          <div
-            key={message.id}
-            style={{
-              alignSelf: message.role === 'user' ? 'flex-end' : 'flex-start',
-              maxWidth: '70%',
-              padding: '8px 12px',
-              borderRadius: 8,
-              whiteSpace: 'pre-wrap',
-              backgroundColor: message.role === 'user' ? '#22D3EE' : 'var(--color-surface)',
-              color: message.role === 'user' ? '#ffffff' : 'var(--color-text)',
-              border: message.role === 'assistant' ? '1px solid var(--color-border)' : undefined,
-            }}
-          >
-            {message.text}
-          </div>
-        ))}
+        {messages.map((message) =>
+          message.kind === 'switch-notice' ? (
+            <div
+              key={message.id}
+              style={{ alignSelf: 'center', color: 'var(--color-text-muted)', fontSize: 13, textAlign: 'center' }}
+            >
+              {message.text}
+            </div>
+          ) : (
+            <div
+              key={message.id}
+              style={{
+                alignSelf: message.role === 'user' ? 'flex-end' : 'flex-start',
+                maxWidth: '70%',
+                padding: '8px 12px',
+                borderRadius: 8,
+                whiteSpace: 'pre-wrap',
+                backgroundColor: message.role === 'user' ? '#22D3EE' : 'var(--color-surface)',
+                color: message.role === 'user' ? '#ffffff' : 'var(--color-text)',
+                border: message.role === 'assistant' ? '1px solid var(--color-border)' : undefined,
+              }}
+            >
+              {message.text}
+            </div>
+          )
+        )}
         {statusLabel && <div style={{ color: 'var(--color-text-muted)', fontSize: 13 }}>{statusLabel}…</div>}
         {pendingConfirm && (
           <div
