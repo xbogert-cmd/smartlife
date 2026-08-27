@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { AIDock } from './AIDock';
 
@@ -21,6 +22,10 @@ beforeEach(() => {
       getPendingConfirmation: vi.fn().mockResolvedValue(null),
       onConfirmResolved: vi.fn(() => () => {}),
       pickAttachment: vi.fn().mockResolvedValue(null),
+      createConversation: vi.fn().mockResolvedValue('conv-1'),
+      listConversations: vi.fn().mockResolvedValue([]),
+      renameConversation: vi.fn().mockResolvedValue(undefined),
+      deleteConversation: vi.fn().mockResolvedValue(undefined),
     },
     browser: { suspend, resume },
   };
@@ -60,5 +65,16 @@ describe('AIDock', () => {
       return style.position === 'fixed' && style.inset === '0px';
     });
     expect(fixedFullScreen).toHaveLength(0);
+  });
+
+  it('toggling the sidebar button reveals the conversation list nav', async () => {
+    render(
+      <MemoryRouter>
+        <AIDock onClose={() => {}} />
+      </MemoryRouter>
+    );
+    expect(screen.queryByRole('navigation', { name: /conversations/i })).toBeNull();
+    await userEvent.click(screen.getByLabelText('Toggle conversation list'));
+    expect(screen.getByRole('navigation', { name: /conversations/i })).toBeInTheDocument();
   });
 });
