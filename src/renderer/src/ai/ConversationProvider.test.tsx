@@ -16,6 +16,7 @@ const ai = {
   listConversations: vi.fn().mockResolvedValue([]),
   renameConversation: vi.fn().mockResolvedValue(undefined),
   deleteConversation: vi.fn().mockResolvedValue(undefined),
+  getCatalog: vi.fn().mockResolvedValue([]),
 };
 
 beforeEach(() => {
@@ -26,6 +27,7 @@ beforeEach(() => {
   ai.getPendingConfirmation.mockResolvedValue(null);
   ai.createConversation.mockResolvedValue('conv-shared');
   ai.listConversations.mockResolvedValue([]);
+  ai.getCatalog.mockResolvedValue([]);
 });
 
 function ConsumerA() {

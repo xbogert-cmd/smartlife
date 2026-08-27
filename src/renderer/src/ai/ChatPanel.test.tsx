@@ -157,3 +157,38 @@ describe('ChatPanel attachments', () => {
     expect(screen.getByText("can't see images")).toBeInTheDocument();
   });
 });
+
+describe('ChatPanel answeredBy caption', () => {
+  const baseProps = {
+    statusLabel: null,
+    pendingConfirm: null,
+    sending: false,
+    apiKeyConfigured: true,
+    input: '',
+    onInputChange: vi.fn(),
+    onSubmit: vi.fn(),
+    onRespondToConfirm: vi.fn(),
+    attachments: [] as { id: string; name: string; kind: 'text' | 'image' }[],
+    attachError: null as string | null,
+    onAddAttachment: vi.fn(),
+    onRemoveAttachment: vi.fn(),
+  };
+
+  it('renders an answeredBy caption under an assistant message that has one', () => {
+    render(
+      <MemoryRouter>
+        <ChatPanel {...baseProps} messages={[{ id: '1', role: 'assistant', text: 'hello', answeredBy: 'Claude Sonnet 5' }]} />
+      </MemoryRouter>
+    );
+    expect(screen.getByText('Claude Sonnet 5')).toBeInTheDocument();
+  });
+
+  it('renders no caption under an assistant message that has none', () => {
+    render(
+      <MemoryRouter>
+        <ChatPanel {...baseProps} messages={[{ id: '1', role: 'assistant', text: 'hello' }]} />
+      </MemoryRouter>
+    );
+    expect(screen.queryByText('Claude Sonnet 5')).not.toBeInTheDocument();
+  });
+});

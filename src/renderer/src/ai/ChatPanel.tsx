@@ -85,17 +85,28 @@ export function ChatPanel({
             <div
               key={message.id}
               style={{
+                display: 'flex',
+                flexDirection: 'column',
                 alignSelf: message.role === 'user' ? 'flex-end' : 'flex-start',
+                alignItems: message.role === 'user' ? 'flex-end' : 'flex-start',
                 maxWidth: '70%',
-                padding: '8px 12px',
-                borderRadius: 8,
-                whiteSpace: 'pre-wrap',
-                backgroundColor: message.role === 'user' ? '#22D3EE' : 'var(--color-surface)',
-                color: message.role === 'user' ? '#ffffff' : 'var(--color-text)',
-                border: message.role === 'assistant' ? '1px solid var(--color-border)' : undefined,
               }}
             >
-              {message.text}
+              <div
+                style={{
+                  padding: '8px 12px',
+                  borderRadius: 8,
+                  whiteSpace: 'pre-wrap',
+                  backgroundColor: message.role === 'user' ? '#22D3EE' : 'var(--color-surface)',
+                  color: message.role === 'user' ? '#ffffff' : 'var(--color-text)',
+                  border: message.role === 'assistant' ? '1px solid var(--color-border)' : undefined,
+                }}
+              >
+                {message.text}
+              </div>
+              {message.role === 'assistant' && message.answeredBy && (
+                <div style={{ color: 'var(--color-text-muted)', fontSize: 11, marginTop: 2 }}>{message.answeredBy}</div>
+              )}
             </div>
           )
         )}

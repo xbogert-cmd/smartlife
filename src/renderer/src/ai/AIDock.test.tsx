@@ -27,6 +27,7 @@ beforeEach(() => {
       listConversations: vi.fn().mockResolvedValue([]),
       renameConversation: vi.fn().mockResolvedValue(undefined),
       deleteConversation: vi.fn().mockResolvedValue(undefined),
+      getCatalog: vi.fn().mockResolvedValue([]),
     },
     browser: { suspend, resume },
   };

@@ -17,6 +17,9 @@ const ai = {
   listConversations: vi.fn(),
   renameConversation: vi.fn(),
   deleteConversation: vi.fn(),
+  getCatalog: vi.fn().mockResolvedValue([
+    { providerId: 'anthropic', model: 'claude-sonnet-5', displayName: 'Claude Sonnet 5', costRank: 3 },
+  ]),
 };
 
 beforeEach(() => {
@@ -34,6 +37,7 @@ beforeEach(() => {
   ai.listConversations.mockResolvedValue([{ id: 'conv-1', title: null, updatedAt: '2026-01-01 00:00:00' }]);
   ai.renameConversation.mockResolvedValue(undefined);
   ai.deleteConversation.mockResolvedValue(undefined);
+  ai.getCatalog.mockResolvedValue([{ providerId: 'anthropic', model: 'claude-sonnet-5', displayName: 'Claude Sonnet 5', costRank: 3 }]);
 });
 
 afterEach(() => {
@@ -129,6 +133,53 @@ describe('useConversation — switching conversations', () => {
     });
 
     expect(result.current.sending).toBe(false);
+  });
+
+  it('switchConversation attaches an answeredBy caption to assistant messages, looked up from the catalog', async () => {
+    ai.getHistory.mockImplementation((id: string) =>
+      Promise.resolve(
+        id === 'conv-2'
+          ? [
+              { role: 'user', content: [{ type: 'text', text: 'question' }], providerId: null, model: null },
+              {
+                role: 'assistant',
+                content: [{ type: 'text', text: 'answer' }],
+                providerId: 'anthropic',
+                model: 'claude-sonnet-5',
+              },
+            ]
+          : []
+      )
+    );
+    const { result } = renderHook(() => useConversation());
+    await waitFor(() => expect(result.current.activeConversationId).toBe('conv-1'));
+
+    await act(async () => {
+      await result.current.switchConversation('conv-2');
+    });
+
+    const assistantMessage = result.current.messages.find((m) => m.role === 'assistant');
+    expect(assistantMessage?.answeredBy).toBe('Claude Sonnet 5');
+    const userMessage = result.current.messages.find((m) => m.role === 'user');
+    expect(userMessage?.answeredBy).toBeUndefined();
+  });
+
+  it('falls back to the raw model name in answeredBy when it is not in the catalog (e.g. Ollama)', async () => {
+    ai.getHistory.mockImplementation((id: string) =>
+      Promise.resolve(
+        id === 'conv-2'
+          ? [{ role: 'assistant', content: [{ type: 'text', text: 'answer' }], providerId: 'ollama', model: 'llama3.1' }]
+          : []
+      )
+    );
+    const { result } = renderHook(() => useConversation());
+    await waitFor(() => expect(result.current.activeConversationId).toBe('conv-1'));
+
+    await act(async () => {
+      await result.current.switchConversation('conv-2');
+    });
+
+    expect(result.current.messages[0].answeredBy).toBe('llama3.1');
   });
 
   it('startNewConversation creates and switches to a fresh, empty conversation', async () => {

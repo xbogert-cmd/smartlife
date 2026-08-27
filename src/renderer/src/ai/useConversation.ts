@@ -5,6 +5,7 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   text: string;
   kind?: 'switch-notice';
+  answeredBy?: string;
 }
 
 export interface PendingConfirm {
@@ -35,6 +36,15 @@ function extractText(content: unknown): string {
     .join('');
 }
 
+function displayNameFor(
+  catalog: Array<{ providerId: string; model: string; displayName: string }>,
+  providerId: string | null,
+  model: string | null
+): string | undefined {
+  if (!providerId || !model) return undefined;
+  return catalog.find((entry) => entry.providerId === providerId && entry.model === model)?.displayName ?? model;
+}
+
 /**
  * Conversation state and every action on it. Deliberately has NO `view`
  * parameter -- unlike the pre-Phase-8c version, `view` is no longer baked in
@@ -60,6 +70,7 @@ export function useConversation() {
   const [attachError, setAttachError] = useState<string | null>(null);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [catalog, setCatalog] = useState<Array<{ providerId: string; model: string; displayName: string }>>([]);
   const streamingIdRef = useRef<string | null>(null);
 
   // Kept in sync with activeConversationId via the effect below so the
@@ -77,6 +88,13 @@ export function useConversation() {
       .hasUsableProvider()
       .then(setApiKeyConfigured)
       .catch(() => setApiKeyConfigured(false));
+  }, []);
+
+  useEffect(() => {
+    window.smartlife.ai
+      .getCatalog()
+      .then(setCatalog)
+      .catch(() => {});
   }, []);
 
   const refreshConversations = useCallback(async () => {
@@ -253,8 +271,15 @@ export function useConversation() {
     // (its getHistory can resolve first) -- only apply this result if it's
     // still the most recently requested conversation.
     if (latestSwitchRequestRef.current !== id) return;
-    setMessages(history.map((m, index) => ({ id: `history-${index}`, role: m.role, text: extractText(m.content) })));
-  }, []);
+    setMessages(
+      history.map((m, index) => ({
+        id: `history-${index}`,
+        role: m.role,
+        text: extractText(m.content),
+        answeredBy: displayNameFor(catalog, m.providerId, m.model),
+      }))
+    );
+  }, [catalog]);
 
   const startNewConversation = useCallback(async () => {
     const id = await window.smartlife.ai.createConversation();

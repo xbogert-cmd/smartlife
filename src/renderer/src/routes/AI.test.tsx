@@ -52,6 +52,7 @@ function mockAi(apiKeyConfigured = true) {
     listConversations: vi.fn().mockResolvedValue([]),
     renameConversation: vi.fn().mockResolvedValue(undefined),
     deleteConversation: vi.fn().mockResolvedValue(undefined),
+    getCatalog: vi.fn().mockResolvedValue([]),
     triggerConfirm: (req: { id: string; toolName: string; description: string }) => confirmCb?.(req),
   };
 }
