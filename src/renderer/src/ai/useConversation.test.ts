@@ -447,6 +447,8 @@ describe('useConversation — stream events scoped to the active conversation', 
       onEvent({ type: 'turn-complete', conversationId: 'conv-1' });
     });
 
+    await act(async () => {});
+
     await waitFor(() => {
       const notices = result.current.messages.filter((m) => m.kind === 'switch-notice');
       expect(notices).toHaveLength(1);

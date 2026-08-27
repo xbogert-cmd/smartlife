@@ -250,6 +250,7 @@ export function useConversation() {
       setMessages((prev) => [...prev, { id, role: 'user', text }]);
       setSending(true);
       streamingIdRef.current = null;
+      lastAssistantMessageIdRef.current = null;
       const attachmentIds = attachments.map((a) => a.id);
       setAttachments([]);
       window.smartlife.ai
