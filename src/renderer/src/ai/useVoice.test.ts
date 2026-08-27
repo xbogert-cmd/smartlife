@@ -24,12 +24,18 @@ class FakeMediaStreamAudioSourceNode {
   disconnect = vi.fn();
 }
 
+const createdProcessors: FakeScriptProcessorNode[] = [];
+
 class FakeAudioContext {
   sampleRate = 48000;
   destination = {};
   close = vi.fn().mockResolvedValue(undefined);
   createMediaStreamSource = vi.fn(() => new FakeMediaStreamAudioSourceNode());
-  createScriptProcessor = vi.fn(() => new FakeScriptProcessorNode());
+  createScriptProcessor = vi.fn(() => {
+    const node = new FakeScriptProcessorNode();
+    createdProcessors.push(node);
+    return node;
+  });
   createGain = vi.fn(() => new FakeGainNode());
 }
 
@@ -61,6 +67,7 @@ beforeEach(() => {
     }
   });
   fakeTrack.stop.mockClear();
+  createdProcessors.length = 0;
 });
 
 afterEach(() => {
@@ -143,6 +150,62 @@ describe('useVoice — recording and transcription', () => {
 
     expect(result.current.isRecording).toBe(false);
     expect(result.current.voiceError).toBe('Could not access the microphone. Check your system permissions.');
+  });
+
+  it('encodes captured audio samples into a correct WAV header and PCM data', async () => {
+    ai.transcribeAudio.mockResolvedValue({ ok: true, text: 'ok' });
+    const { result } = renderHook(() => useVoice({ messages: [], sending: false, sendMessage: vi.fn() }));
+
+    await act(async () => {
+      await result.current.toggleRecording();
+    });
+
+    const processor = createdProcessors[createdProcessors.length - 1];
+    const samples = new Float32Array([0, 1, -1]);
+    act(() => {
+      processor.onaudioprocess?.({ inputBuffer: { getChannelData: () => samples } });
+    });
+
+    await act(async () => {
+      await result.current.toggleRecording();
+    });
+
+    const [base64] = ai.transcribeAudio.mock.calls[0];
+    const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const chunkId = (offset: number): string => String.fromCharCode(...bytes.subarray(offset, offset + 4));
+
+    expect(chunkId(0)).toBe('RIFF');
+    expect(chunkId(8)).toBe('WAVE');
+    expect(chunkId(12)).toBe('fmt ');
+    expect(view.getUint16(20, true)).toBe(1); // PCM format
+    expect(view.getUint16(22, true)).toBe(1); // mono
+    expect(view.getUint32(24, true)).toBe(48000); // FakeAudioContext's sampleRate
+    expect(view.getUint16(34, true)).toBe(16); // bits per sample
+    expect(chunkId(36)).toBe('data');
+    expect(view.getUint32(40, true)).toBe(samples.length * 2);
+    expect(bytes.length).toBe(44 + samples.length * 2);
+
+    // Spot-check the actual PCM encoding of known sample values.
+    expect(view.getInt16(44 + 0 * 2, true)).toBe(0); // 0 -> 0
+    expect(view.getInt16(44 + 1 * 2, true)).toBe(0x7fff); // 1 -> +32767
+    expect(view.getInt16(44 + 2 * 2, true)).toBe(-0x8000); // -1 -> -32768
+  });
+
+  it('ignores a second toggleRecording call while the first getUserMedia is still in flight', async () => {
+    const { result } = renderHook(() => useVoice({ messages: [], sending: false, sendMessage: vi.fn() }));
+
+    let firstCallCount = 0;
+    await act(async () => {
+      const first = result.current.toggleRecording();
+      firstCallCount = getUserMedia.mock.calls.length;
+      const second = result.current.toggleRecording();
+      await Promise.all([first, second]);
+    });
+
+    expect(firstCallCount).toBe(1);
+    expect(getUserMedia).toHaveBeenCalledTimes(1);
+    expect(result.current.isRecording).toBe(true);
   });
 });
 

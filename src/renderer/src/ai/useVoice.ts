@@ -79,6 +79,7 @@ export function useVoice({ messages, sending, sendMessage }: UseVoiceParams) {
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const sessionRef = useRef<RecordingSession | null>(null);
   const wasSendingRef = useRef(false);
+  const isStartingRef = useRef(false);
 
   // Speaks the just-finished assistant reply once the turn completes, only
   // while voice mode is on. Watches `sending` flip true -> false rather than
@@ -94,14 +95,30 @@ export function useVoice({ messages, sending, sendMessage }: UseVoiceParams) {
     wasSendingRef.current = sending;
   }, [sending, voiceModeOn, messages]);
 
-  const toggleVoiceMode = useCallback(() => {
-    setVoiceModeOn((prev) => {
-      if (prev) window.speechSynthesis.cancel();
-      return !prev;
-    });
+  // Tears down the mic stream and AudioContext if whatever renders this hook
+  // unmounts mid-recording -- otherwise the OS mic indicator stays lit with
+  // no way to turn it off short of quitting the app.
+  useEffect(() => {
+    return () => {
+      const session = sessionRef.current;
+      if (session) {
+        session.processor.disconnect();
+        session.source.disconnect();
+        session.silentGain.disconnect();
+        session.stream.getTracks().forEach((track) => track.stop());
+        void session.audioContext.close();
+      }
+    };
   }, []);
 
+  const toggleVoiceMode = useCallback(() => {
+    if (voiceModeOn) window.speechSynthesis.cancel();
+    setVoiceModeOn((prev) => !prev);
+  }, [voiceModeOn]);
+
   const startRecording = useCallback(async () => {
+    if (isStartingRef.current) return;
+    isStartingRef.current = true;
     setVoiceError(null);
     // Cancel any in-progress speech before recording a new turn -- no
     // attempt at detecting interruption by voice, just a clean handoff.
@@ -124,6 +141,8 @@ export function useVoice({ messages, sending, sendMessage }: UseVoiceParams) {
       setIsRecording(true);
     } catch {
       setVoiceError('Could not access the microphone. Check your system permissions.');
+    } finally {
+      isStartingRef.current = false;
     }
   }, []);
 
