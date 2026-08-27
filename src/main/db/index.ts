@@ -10,6 +10,7 @@ import migration0004 from './migrations/0004_calendar.sql?raw';
 import migration0005 from './migrations/0005_browser.sql?raw';
 import migration0006 from './migrations/0006_submissions.sql?raw';
 import migration0007 from './migrations/0007_ai_providers.sql?raw';
+import migration0008 from './migrations/0008_ai_usage.sql?raw';
 
 export function openDb(): Database.Database {
   const dbPath = join(app.getPath('userData'), 'smartlife.db');
@@ -25,6 +26,7 @@ export function openDb(): Database.Database {
     { filename: '0005_browser.sql', sql: migration0005 },
     { filename: '0006_submissions.sql', sql: migration0006 },
     { filename: '0007_ai_providers.sql', sql: migration0007 },
+    { filename: '0008_ai_usage.sql', sql: migration0008 },
   ]);
   return db;
 }

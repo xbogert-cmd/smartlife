@@ -74,6 +74,9 @@ export const CATALOG: CatalogEntry[] = [
     costRank: 3,
     supportsWebSearch: true,
     supportsVision: true,
+    // Prices are for prompts <=200k tokens (Google's lower tier). Prompts
+    // over 200k tokens are billed at $2.50/$15.00 per MTok -- not modeled
+    // here, since CatalogEntry has no prompt-size-dependent pricing today.
     inputPricePerMTok: 1.25,
     outputPricePerMTok: 10.0,
   },

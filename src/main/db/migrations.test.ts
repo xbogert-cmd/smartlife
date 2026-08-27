@@ -8,6 +8,8 @@ import migration0003 from './migrations/0003_canvas.sql?raw';
 import migration0004 from './migrations/0004_calendar.sql?raw';
 import migration0005 from './migrations/0005_browser.sql?raw';
 import migration0006 from './migrations/0006_submissions.sql?raw';
+import migration0007 from './migrations/0007_ai_providers.sql?raw';
+import migration0008 from './migrations/0008_ai_usage.sql?raw';
 
 const ALL_MIGRATIONS: Migration[] = [
   { filename: '0001_init.sql', sql: migration0001 },
@@ -16,6 +18,8 @@ const ALL_MIGRATIONS: Migration[] = [
   { filename: '0004_calendar.sql', sql: migration0004 },
   { filename: '0005_browser.sql', sql: migration0005 },
   { filename: '0006_submissions.sql', sql: migration0006 },
+  { filename: '0007_ai_providers.sql', sql: migration0007 },
+  { filename: '0008_ai_usage.sql', sql: migration0008 },
 ];
 
 describe('migrations', () => {
@@ -54,5 +58,15 @@ describe('migrations', () => {
 
     const remaining = db.prepare('select count(*) as n from assignment_drafts').get() as { n: number };
     expect(remaining.n).toBe(0);
+  });
+
+  it('0008 adds the usage-tracking columns to ai_messages', () => {
+    const db = new Database(':memory:');
+    runMigrations(db, ALL_MIGRATIONS);
+
+    const cols = (db.prepare('pragma table_info(ai_messages)').all() as Array<{ name: string }>)
+      .map((c) => c.name)
+      .sort();
+    expect(cols).toEqual(['content', 'conversation_id', 'created_at', 'id', 'input_tokens', 'model', 'output_tokens', 'provider', 'role']);
   });
 });

@@ -94,10 +94,13 @@ export interface UsageRow {
 export function getUsageSummary(db: Database.Database): UsageRow[] {
   const rows = db
     .prepare(
-      `select provider, model, sum(input_tokens) as input_tokens, sum(output_tokens) as output_tokens
+      `select provider, model,
+         coalesce(sum(input_tokens), 0) as input_tokens,
+         coalesce(sum(output_tokens), 0) as output_tokens
        from ai_messages
        where provider is not null
-       group by provider, model`
+       group by provider, model
+       order by provider, model`
     )
     .all() as Array<{ provider: string; model: string; input_tokens: number; output_tokens: number }>;
 
