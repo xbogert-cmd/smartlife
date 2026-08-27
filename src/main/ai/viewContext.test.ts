@@ -60,6 +60,12 @@ describe('buildSystemPrompt', () => {
     expect(buildSystemPrompt(setup(), null, NOW)).toContain('2026-08-22');
   });
 
+  it('reads as a general-purpose assistant, not scoped to app topics only', () => {
+    const prompt = buildSystemPrompt(setup(), null, NOW);
+    expect(prompt).toContain('general-purpose AI assistant');
+    expect(prompt).toContain('you are not limited to app-related topics');
+  });
+
   it('works with no view context at all', () => {
     expect(() => buildSystemPrompt(setup(), null, NOW)).not.toThrow();
   });
