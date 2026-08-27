@@ -268,6 +268,33 @@ describe('ChatPanel voice mode', () => {
     expect(screen.getByText('Could not access the microphone. Check your system permissions.')).toBeInTheDocument();
   });
 
+  it('announces voiceError to assistive tech via role="alert"', () => {
+    render(
+      <MemoryRouter>
+        <ChatPanel {...baseProps} voiceModeOn={true} onToggleVoiceMode={vi.fn()} isRecording={false} onToggleRecording={vi.fn()} voiceError="Could not access the microphone. Check your system permissions." />
+      </MemoryRouter>
+    );
+    expect(screen.getByRole('alert')).toHaveTextContent('Could not access the microphone. Check your system permissions.');
+  });
+
+  it('disables the mic button while a turn is in flight and nothing is recording', () => {
+    render(
+      <MemoryRouter>
+        <ChatPanel {...baseProps} sending={true} voiceModeOn={true} onToggleVoiceMode={vi.fn()} isRecording={false} onToggleRecording={vi.fn()} voiceError={null} />
+      </MemoryRouter>
+    );
+    expect(screen.getByRole('button', { name: /start voice input/i })).toBeDisabled();
+  });
+
+  it('does not disable the mic button while recording, even if sending is true', () => {
+    render(
+      <MemoryRouter>
+        <ChatPanel {...baseProps} sending={true} voiceModeOn={true} onToggleVoiceMode={vi.fn()} isRecording={true} onToggleRecording={vi.fn()} voiceError={null} />
+      </MemoryRouter>
+    );
+    expect(screen.getByRole('button', { name: /stop voice input/i })).not.toBeDisabled();
+  });
+
   it('calls onToggleVoiceMode when the voice mode toggle is clicked', async () => {
     const onToggleVoiceMode = vi.fn();
     render(

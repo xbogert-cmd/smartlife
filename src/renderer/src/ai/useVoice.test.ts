@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { useVoice } from './useVoice';
 import type { ChatMessage } from './useConversation';
 
@@ -71,6 +71,13 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // Explicit, ordered cleanup() before unstubbing: renderHook's automatic
+  // unmount (registered by the global test-setup's own afterEach) can
+  // otherwise run after globals are torn down here, since hook order across
+  // setup files vs. this file isn't guaranteed -- and useVoice's unmount
+  // effect now reaches for window.speechSynthesis (Fix 3), which must still
+  // be the stub at that point.
+  cleanup();
   vi.unstubAllGlobals();
 });
 
@@ -212,6 +219,17 @@ describe('useVoice — recording and transcription', () => {
     expect(view.getInt16(44 + 2 * 2, true)).toBe(-0x8000); // -1 -> -32768
   });
 
+  it('does not start recording (or call getUserMedia) when a turn is already in flight', async () => {
+    const { result } = renderHook(() => useVoice({ messages: [], sending: true, sendMessage: vi.fn() }));
+
+    await act(async () => {
+      await result.current.toggleRecording();
+    });
+
+    expect(getUserMedia).not.toHaveBeenCalled();
+    expect(result.current.isRecording).toBe(false);
+  });
+
   it('ignores a second toggleRecording call while the first getUserMedia is still in flight', async () => {
     const { result } = renderHook(() => useVoice({ messages: [], sending: false, sendMessage: vi.fn() }));
 
@@ -245,6 +263,12 @@ describe('useVoice — recording and transcription', () => {
     const { unmount } = renderHook(() => useVoice({ messages: [], sending: false, sendMessage: vi.fn() }));
     expect(() => unmount()).not.toThrow();
     expect(fakeTrack.stop).not.toHaveBeenCalled();
+  });
+
+  it('cancels any in-progress speech on unmount', () => {
+    const { unmount } = renderHook(() => useVoice({ messages: [], sending: false, sendMessage: vi.fn() }));
+    unmount();
+    expect(cancel).toHaveBeenCalled();
   });
 });
 

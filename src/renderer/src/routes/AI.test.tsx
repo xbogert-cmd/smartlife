@@ -63,6 +63,10 @@ function mockAi(apiKeyConfigured = true) {
 
 beforeEach(() => {
   (window as unknown as { smartlife: { ai: ReturnType<typeof mockAi> } }).smartlife = { ai: mockAi() };
+  // ConversationProvider now hosts a real useVoice instance (Fix 2), and its
+  // unmount effect unconditionally cancels speech synthesis (Fix 3) --
+  // jsdom has no speechSynthesis, so give it a harmless stub.
+  vi.stubGlobal('speechSynthesis', { speak: vi.fn(), cancel: vi.fn() });
 });
 
 describe('AI chat view', () => {

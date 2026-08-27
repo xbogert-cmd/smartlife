@@ -12,6 +12,10 @@ beforeEach(() => {
   suspend.mockClear();
   resume.mockClear();
   vi.stubGlobal('window', window);
+  // ConversationProvider now hosts a real useVoice instance (Fix 2), and its
+  // unmount effect unconditionally cancels speech synthesis (Fix 3) --
+  // jsdom has no speechSynthesis, so give it a harmless stub.
+  vi.stubGlobal('speechSynthesis', { speak: vi.fn(), cancel: vi.fn() });
   (window as unknown as { smartlife: unknown }).smartlife = {
     ai: {
       hasUsableProvider: vi.fn().mockResolvedValue(true),

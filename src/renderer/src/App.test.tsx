@@ -4,6 +4,10 @@ import userEvent from '@testing-library/user-event';
 import { App } from './App';
 
 beforeEach(() => {
+  // ConversationProvider now hosts a real useVoice instance (Fix 2), and its
+  // unmount effect unconditionally cancels speech synthesis (Fix 3) --
+  // jsdom has no speechSynthesis, so give it a harmless stub.
+  vi.stubGlobal('speechSynthesis', { speak: vi.fn(), cancel: vi.fn() });
   Object.defineProperty(window, 'matchMedia', {
     writable: true,
     value: vi.fn().mockImplementation((query: string) => ({

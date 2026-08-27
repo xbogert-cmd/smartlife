@@ -1,9 +1,8 @@
 import { useState, type FormEvent } from 'react';
-import { useConversationContext } from './ConversationProvider';
+import { useConversationContext, useVoiceContext } from './ConversationProvider';
 import { useViewContext } from './useViewContext';
 import { ChatPanel } from './ChatPanel';
 import { ConversationSidebar } from './ConversationSidebar';
-import { useVoice } from './useVoice';
 
 /**
  * The assistant as a docked side panel rather than a modal overlay.
@@ -16,16 +15,7 @@ import { useVoice } from './useVoice';
 export function AIDock({ onClose }: { onClose: () => void }): React.JSX.Element {
   const view = useViewContext();
   const conversation = useConversationContext();
-  const voice = useVoice({
-    messages: conversation.messages,
-    sending: conversation.sending,
-    // Wrapped so a voice-transcribed send carries the same ambient `view`
-    // context a typed send in this dock already gets. useVoice calls this
-    // as sendMessage(text, true) (see Task 4), so `voiceMode` here is that
-    // hook's argument, not `voice.voiceModeOn` (which isn't in scope yet at
-    // the point this object literal is constructed).
-    sendMessage: (text, voiceMode) => conversation.sendMessage(text, view, voiceMode),
-  });
+  const voice = useVoiceContext();
   const [input, setInput] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
 

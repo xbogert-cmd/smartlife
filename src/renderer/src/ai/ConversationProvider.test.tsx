@@ -1,6 +1,7 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
-import { ConversationProvider, useConversationContext } from './ConversationProvider';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, waitFor, cleanup } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+import { ConversationProvider, useConversationContext, useVoiceContext } from './ConversationProvider';
 
 const ai = {
   hasUsableProvider: vi.fn().mockResolvedValue(true),
@@ -17,6 +18,7 @@ const ai = {
   renameConversation: vi.fn().mockResolvedValue(undefined),
   deleteConversation: vi.fn().mockResolvedValue(undefined),
   getCatalog: vi.fn().mockResolvedValue([]),
+  transcribeAudio: vi.fn(),
 };
 
 beforeEach(() => {
@@ -28,6 +30,27 @@ beforeEach(() => {
   ai.createConversation.mockResolvedValue('conv-shared');
   ai.listConversations.mockResolvedValue([]);
   ai.getCatalog.mockResolvedValue([]);
+  // Minimal stubs so useVoice (now hoisted into ConversationProvider) can
+  // mount without crashing -- these tests don't exercise real recording,
+  // just the shared-instance property, so getUserMedia/AudioContext never
+  // actually need to be invoked.
+  Object.defineProperty(navigator, 'mediaDevices', { value: { getUserMedia: vi.fn() }, writable: true, configurable: true });
+  vi.stubGlobal('AudioContext', class {});
+  vi.stubGlobal('speechSynthesis', { speak: vi.fn(), cancel: vi.fn() });
+  vi.stubGlobal('SpeechSynthesisUtterance', class {
+    text: string;
+    constructor(text: string) {
+      this.text = text;
+    }
+  });
+});
+
+afterEach(() => {
+  // Explicit, ordered cleanup() before unstubbing globals -- see the
+  // matching comment in useVoice.test.ts for why order matters here now
+  // that useVoice's unmount effect reaches for window.speechSynthesis.
+  cleanup();
+  vi.unstubAllGlobals();
 });
 
 function ConsumerA() {
@@ -37,6 +60,15 @@ function ConsumerA() {
 function ConsumerB() {
   const { activeConversationId } = useConversationContext();
   return <div data-testid="b">{activeConversationId ?? 'none'}</div>;
+}
+
+function VoiceConsumerA() {
+  const { voiceModeOn, isRecording } = useVoiceContext();
+  return <div data-testid="voice-a">{`${voiceModeOn}:${isRecording}`}</div>;
+}
+function VoiceConsumerB() {
+  const { voiceModeOn, isRecording } = useVoiceContext();
+  return <div data-testid="voice-b">{`${voiceModeOn}:${isRecording}`}</div>;
 }
 
 describe('ConversationProvider', () => {
@@ -50,15 +82,40 @@ describe('ConversationProvider', () => {
     consoleError.mockRestore();
   });
 
+  it('throws when useVoiceContext is used outside a provider', () => {
+    function Bare() {
+      useVoiceContext();
+      return null;
+    }
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(() => render(<Bare />)).toThrow('useVoiceContext must be used within a ConversationProvider');
+    consoleError.mockRestore();
+  });
+
   it('shares the same conversation state across multiple consumers', async () => {
     render(
-      <ConversationProvider>
-        <ConsumerA />
-        <ConsumerB />
-      </ConversationProvider>
+      <MemoryRouter>
+        <ConversationProvider>
+          <ConsumerA />
+          <ConsumerB />
+        </ConversationProvider>
+      </MemoryRouter>
     );
     await waitFor(() => expect(screen.getByTestId('a').textContent).toBe('conv-shared'));
     expect(screen.getByTestId('b').textContent).toBe('conv-shared');
     expect(ai.createConversation).toHaveBeenCalledTimes(1);
+  });
+
+  it('shares the same voice state across multiple consumers', async () => {
+    render(
+      <MemoryRouter>
+        <ConversationProvider>
+          <VoiceConsumerA />
+          <VoiceConsumerB />
+        </ConversationProvider>
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(screen.getByTestId('voice-a').textContent).toBe('false:false'));
+    expect(screen.getByTestId('voice-b').textContent).toBe('false:false');
   });
 });

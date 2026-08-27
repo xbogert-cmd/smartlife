@@ -1,15 +1,10 @@
 import { useState, type FormEvent } from 'react';
-import { useConversationContext } from '../ai/ConversationProvider';
+import { useConversationContext, useVoiceContext } from '../ai/ConversationProvider';
 import { ChatPanel } from '../ai/ChatPanel';
-import { useVoice } from '../ai/useVoice';
 
 export function AI() {
   const conversation = useConversationContext();
-  const voice = useVoice({
-    messages: conversation.messages,
-    sending: conversation.sending,
-    sendMessage: (text, voiceMode) => conversation.sendMessage(text, undefined, voiceMode),
-  });
+  const voice = useVoiceContext();
   const [input, setInput] = useState('');
 
   function handleSubmit(event: FormEvent): void {

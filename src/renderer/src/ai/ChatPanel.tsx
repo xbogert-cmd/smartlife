@@ -183,7 +183,11 @@ export function ChatPanel({
             </span>
           ))}
           {attachError && <span style={{ color: '#EF4444', fontSize: 12 }}>{attachError}</span>}
-          {voiceError && <span style={{ color: '#EF4444', fontSize: 12 }}>{voiceError}</span>}
+          {voiceError && (
+            <span role="alert" style={{ color: '#EF4444', fontSize: 12 }}>
+              {voiceError}
+            </span>
+          )}
         </div>
       )}
       <form onSubmit={onSubmit} className="flex gap-2 p-4" style={{ borderTop: '1px solid var(--color-border)' }}>
@@ -192,6 +196,7 @@ export function ChatPanel({
             type="button"
             onClick={onToggleRecording}
             aria-label={isRecording ? 'Stop voice input' : 'Start voice input'}
+            disabled={!isRecording && sending}
             className="rounded-md px-3 py-2 text-sm"
             style={{
               backgroundColor: isRecording ? '#EF4444' : 'var(--color-surface)',

@@ -116,6 +116,7 @@ export function useVoice({ messages, sending, sendMessage }: UseVoiceParams) {
     return () => {
       const session = sessionRef.current;
       if (session) void teardownSession(session);
+      window.speechSynthesis.cancel();
     };
   }, []);
 
@@ -180,10 +181,10 @@ export function useVoice({ messages, sending, sendMessage }: UseVoiceParams) {
   const toggleRecording = useCallback(async () => {
     if (isRecording) {
       await stopRecording();
-    } else {
+    } else if (!sending) {
       await startRecording();
     }
-  }, [isRecording, startRecording, stopRecording]);
+  }, [isRecording, sending, startRecording, stopRecording]);
 
   // Tears down an in-progress recording without transcribing or sending --
   // used when voice mode is turned off mid-recording, where the user's
