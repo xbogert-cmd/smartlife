@@ -1,6 +1,6 @@
 import type { ToolContext, ToolDefinition } from '../tools/types';
 import { isKnownGoodForVision } from './catalog';
-import { ProviderError, type AIProvider, type CanonicalContentBlock, type CanonicalTextBlock, type StreamEvent, type TurnMessage } from './types';
+import { ProviderError, type AIProvider, type CanonicalContentBlock, type CanonicalTextBlock, type StreamEvent, type TurnMessage, type TurnResult } from './types';
 
 interface OllamaTool {
   type: 'function';
@@ -18,6 +18,8 @@ interface OllamaMessage {
 interface OllamaChatChunk {
   message: OllamaMessage;
   done: boolean;
+  prompt_eval_count?: number;
+  eval_count?: number;
 }
 
 export function toOllamaTools(tools: ToolDefinition[], visionCapable: boolean): OllamaTool[] {
@@ -76,13 +78,15 @@ export function toOllamaMessages(
 async function readChatStream(
   response: Response,
   onTextDelta: (text: string) => void
-): Promise<{ content: string; toolCalls: OllamaMessage['tool_calls'] }> {
+): Promise<{ content: string; toolCalls: OllamaMessage['tool_calls']; usage: { inputTokens: number; outputTokens: number } }> {
   const reader = response.body?.getReader();
   if (!reader) throw new ProviderError('Ollama returned no response body.');
   const decoder = new TextDecoder();
   let buffer = '';
   let content = '';
   let toolCalls: OllamaMessage['tool_calls'];
+  let inputTokens = 0;
+  let outputTokens = 0;
 
   while (true) {
     const { done, value } = await reader.read();
@@ -100,10 +104,14 @@ async function readChatStream(
       if (chunk.message.tool_calls && chunk.message.tool_calls.length > 0) {
         toolCalls = chunk.message.tool_calls;
       }
+      if (chunk.done) {
+        inputTokens = chunk.prompt_eval_count ?? 0;
+        outputTokens = chunk.eval_count ?? 0;
+      }
     }
   }
 
-  return { content, toolCalls };
+  return { content, toolCalls, usage: { inputTokens, outputTokens } };
 }
 
 async function runOneTool(
@@ -133,6 +141,8 @@ export function createOllamaProvider(endpoint: string, model: string): AIProvide
       const messages = toOllamaMessages(system, history, userText, attachments, visionCapable);
 
       let finalText = '';
+      let totalInputTokens = 0;
+      let totalOutputTokens = 0;
       // Same manual-tool-loop safety valve as gemini.ts -- a hard cap so a
       // model that keeps calling tools can never loop this turn forever.
       const MAX_ROUNDS = 20;
@@ -155,10 +165,12 @@ export function createOllamaProvider(endpoint: string, model: string): AIProvide
             );
           }
 
-          const { content, toolCalls } = await readChatStream(response, (text) => {
+          const { content, toolCalls, usage } = await readChatStream(response, (text) => {
             onEvent({ type: 'text-delta', text } satisfies StreamEvent);
           });
           finalText = content;
+          totalInputTokens += usage.inputTokens;
+          totalOutputTokens += usage.outputTokens;
           messages.push({ role: 'assistant', content });
 
           if (!toolCalls || toolCalls.length === 0) break;
@@ -188,7 +200,12 @@ export function createOllamaProvider(endpoint: string, model: string): AIProvide
       }
 
       onEvent({ type: 'turn-complete' } satisfies StreamEvent);
-      return [{ type: 'text', text: finalText }] satisfies CanonicalTextBlock[];
+      return {
+        content: [{ type: 'text', text: finalText }],
+        usage: { inputTokens: totalInputTokens, outputTokens: totalOutputTokens },
+        providerId: 'ollama',
+        model,
+      } satisfies TurnResult;
     },
   };
 }

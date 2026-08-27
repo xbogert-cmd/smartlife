@@ -74,7 +74,7 @@ describe('createOllamaProvider', () => {
       onEvent,
     });
 
-    expect(result).toEqual([{ type: 'text', text: 'Hello!' }]);
+    expect(result.content).toEqual([{ type: 'text', text: 'Hello!' }]);
     expect(onEvent).toHaveBeenCalledWith({ type: 'text-delta', text: 'Hel' });
     expect(onEvent).toHaveBeenCalledWith({ type: 'text-delta', text: 'lo!' });
     expect(onEvent).toHaveBeenCalledWith({ type: 'turn-complete' });
@@ -112,7 +112,7 @@ describe('createOllamaProvider', () => {
       onEvent,
     });
 
-    expect(result).toEqual([{ type: 'text', text: 'It is sunny.' }]);
+    expect(result.content).toEqual([{ type: 'text', text: 'It is sunny.' }]);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const secondCallBody = JSON.parse((fetchMock.mock.calls[1][1] as RequestInit).body as string);
     expect(secondCallBody.messages).toContainEqual({ role: 'tool', content: 'Sunny, 72F', tool_name: 'get_weather' });
@@ -160,7 +160,7 @@ describe('createOllamaProvider', () => {
       onEvent,
     });
 
-    expect(result).toEqual([{ type: 'text', text: 'Hello!' }]);
+    expect(result.content).toEqual([{ type: 'text', text: 'Hello!' }]);
     expect(onEvent).toHaveBeenCalledWith({ type: 'text-delta', text: 'Hello!' });
   });
 
@@ -178,6 +178,49 @@ describe('createOllamaProvider', () => {
     await expect(
       provider.streamTurn({ system: 's', history: [], userText: 'hi', tools: [], ctx: fakeCtx(), onEvent: vi.fn() })
     ).rejects.toThrow(ProviderError);
+  });
+
+  it('reports usage from the final done:true chunk of each round, summed across multiple rounds', async () => {
+    const tool: ToolDefinition = {
+      name: 'get_weather',
+      tier: 'READ',
+      label: 'Get weather',
+      schema: { name: 'get_weather', description: 'd', input_schema: { type: 'object', properties: {} } },
+      run: async () => 'Sunny, 72F',
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        ndjsonResponse([
+          {
+            message: { role: 'assistant', content: '', tool_calls: [{ function: { name: 'get_weather', arguments: {} } }] },
+            done: true,
+            prompt_eval_count: 50,
+            eval_count: 8,
+          },
+        ])
+      )
+      .mockResolvedValueOnce(
+        ndjsonResponse([
+          { message: { role: 'assistant', content: 'It is sunny.' }, done: true, prompt_eval_count: 65, eval_count: 9 },
+        ])
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const provider = createOllamaProvider('http://localhost:11434', 'llama3.1');
+    const result = await provider.streamTurn({
+      system: 's',
+      history: [],
+      userText: 'weather?',
+      tools: [tool],
+      ctx: fakeCtx(),
+      onEvent: vi.fn(),
+    });
+
+    expect(result.content).toEqual([{ type: 'text', text: 'It is sunny.' }]);
+    expect(result.usage).toEqual({ inputTokens: 115, outputTokens: 17 });
+    expect(result.providerId).toBe('ollama');
+    expect(result.model).toBe('llama3.1');
   });
 });
 
@@ -359,7 +402,7 @@ describe('screenshot round-trip', () => {
       onEvent: vi.fn(),
     });
 
-    expect(result).toEqual([{ type: 'text', text: 'I can see the page now.' }]);
+    expect(result.content).toEqual([{ type: 'text', text: 'I can see the page now.' }]);
     const secondCallBody = JSON.parse((fetchMock.mock.calls[1][1] as RequestInit).body as string);
     expect(secondCallBody.messages).toContainEqual({ role: 'user', content: '(image attached)', images: ['xyz'] });
     expect(ctx.pendingImages).toEqual([]);
