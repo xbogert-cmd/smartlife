@@ -114,6 +114,23 @@ describe('useConversation — switching conversations', () => {
     expect(result.current.messages).toEqual([{ id: 'history-0', role: 'user', text: 'fresh message' }]);
   });
 
+  it('switching away from a still-streaming conversation releases the sending lock', async () => {
+    const { result } = renderHook(() => useConversation());
+    await waitFor(() => expect(result.current.activeConversationId).toBe('conv-1'));
+
+    act(() => {
+      result.current.sendMessage('hi');
+    });
+    expect(result.current.sending).toBe(true);
+
+    // No turn-complete ever arrives for conv-1 -- switch away before it does.
+    await act(async () => {
+      await result.current.switchConversation('conv-2');
+    });
+
+    expect(result.current.sending).toBe(false);
+  });
+
   it('startNewConversation creates and switches to a fresh, empty conversation', async () => {
     const { result } = renderHook(() => useConversation());
     await waitFor(() => expect(result.current.activeConversationId).toBe('conv-1'));
@@ -298,7 +315,10 @@ describe('useConversation — stream events scoped to the active conversation', 
     await waitFor(() => expect(result.current.activeConversationId).toBe('conv-1'));
     const onEvent = ai.onStreamEvent.mock.calls[0][0] as (event: unknown) => void;
 
-    onEvent({ type: 'text-delta', text: 'not for you', conversationId: 'some-other-conversation' });
+    await act(async () => {
+      onEvent({ type: 'text-delta', text: 'not for you', conversationId: 'some-other-conversation' });
+      await Promise.resolve();
+    });
 
     expect(result.current.messages).toEqual([]);
   });

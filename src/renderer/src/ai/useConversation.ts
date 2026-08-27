@@ -247,6 +247,7 @@ export function useConversation() {
     setActiveConversationId(id);
     streamingIdRef.current = null;
     setStatusLabel(null);
+    setSending(false);
     const history = await window.smartlife.ai.getHistory(id).catch(() => []);
     // A later switchConversation call may have already superseded this one
     // (its getHistory can resolve first) -- only apply this result if it's
@@ -261,6 +262,7 @@ export function useConversation() {
     setMessages([]);
     streamingIdRef.current = null;
     setStatusLabel(null);
+    setSending(false);
     await refreshConversations();
   }, [refreshConversations]);
 

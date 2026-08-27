@@ -95,12 +95,18 @@ describe('ConversationSidebar', () => {
   });
 
   it('parses SQLite UTC timestamps correctly regardless of the local machine timezone', () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-01-01T12:00:00.000Z'));
-    // 90 minutes before "now" in UTC, formatted the way SQLite's datetime('now') would (space-separated, no Z).
-    // Parsed naively (as local time by V8) this would shift by the machine's UTC offset and land on a
-    // different bucket than "1h ago" on most timezones -- the fix makes it timezone-independent.
-    expect(relativeTime('2026-01-01 10:30:00')).toBe('1h ago');
-    vi.useRealTimers();
+    const originalTz = process.env.TZ;
+    process.env.TZ = 'America/New_York';
+    try {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-01-01T12:00:00.000Z'));
+      // 90 minutes before "now" in UTC, formatted the way SQLite's datetime('now') would (space-separated, no Z).
+      // Parsed naively (as local time by V8) this would shift by the machine's UTC offset and land on a
+      // different bucket than "1h ago" on most timezones -- the fix makes it timezone-independent.
+      expect(relativeTime('2026-01-01 10:30:00')).toBe('1h ago');
+      vi.useRealTimers();
+    } finally {
+      process.env.TZ = originalTz;
+    }
   });
 });
