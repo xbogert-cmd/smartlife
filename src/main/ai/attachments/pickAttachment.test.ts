@@ -31,7 +31,7 @@ describe('pickAttachment', () => {
     expect(await pickAttachment(null, true)).toBeNull();
   });
 
-  it('extracts .txt content directly and returns an ok result with a text block pending', async () => {
+  it('extracts .txt content directly and returns it as a persisted text block, not a placeholder', async () => {
     const { readFile } = await import('node:fs/promises');
     showOpenDialog.mockResolvedValue({ canceled: false, filePaths: ['/tmp/notes.txt'] });
     vi.mocked(readFile).mockResolvedValue('some notes' as never);
@@ -39,9 +39,10 @@ describe('pickAttachment', () => {
     const result = await pickAttachment(null, true);
     expect(result).toMatchObject({ ok: true, name: 'notes.txt', kind: 'text' });
     if (result?.ok !== true) throw new Error('expected ok');
-    const { blocks, placeholders } = takeAttachments([result.id]);
+    const { blocks, persistedTextBlocks, imagePlaceholders } = takeAttachments([result.id]);
     expect(blocks).toEqual([{ type: 'text', text: 'some notes' }]);
-    expect(placeholders[0]).toContain('notes.txt');
+    expect(persistedTextBlocks).toEqual([{ type: 'text', text: 'some notes' }]);
+    expect(imagePlaceholders).toEqual([]);
   });
 
   it('rejects an image file when supportsVision is false, without opening the file', async () => {
@@ -53,7 +54,7 @@ describe('pickAttachment', () => {
     expect(readFile).not.toHaveBeenCalled();
   });
 
-  it('reads an image file into a base64 image block when supportsVision is true', async () => {
+  it('reads an image file into a base64 image block when supportsVision is true, and only a placeholder note (no persisted text block)', async () => {
     const { readFile } = await import('node:fs/promises');
     showOpenDialog.mockResolvedValue({ canceled: false, filePaths: ['/tmp/photo.png'] });
     vi.mocked(readFile).mockResolvedValue(Buffer.from('fake-bytes') as never);
@@ -61,8 +62,10 @@ describe('pickAttachment', () => {
     const result = await pickAttachment(null, true);
     expect(result).toMatchObject({ ok: true, kind: 'image' });
     if (result?.ok !== true) throw new Error('expected ok');
-    const { blocks } = takeAttachments([result.id]);
+    const { blocks, persistedTextBlocks, imagePlaceholders } = takeAttachments([result.id]);
     expect(blocks).toEqual([{ type: 'image', mimeType: 'image/png', data: Buffer.from('fake-bytes').toString('base64') }]);
+    expect(persistedTextBlocks).toEqual([]);
+    expect(imagePlaceholders).toEqual(['[attached: photo.png — image]']);
   });
 
   it('rejects an unsupported extension', async () => {

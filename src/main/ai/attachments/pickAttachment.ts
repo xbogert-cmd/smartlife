@@ -1,7 +1,7 @@
 import { dialog, type BrowserWindow, type OpenDialogOptions } from 'electron';
 import { readFile } from 'node:fs/promises';
 import { basename, extname } from 'node:path';
-import type { CanonicalContentBlock } from '../providers/types';
+import type { CanonicalContentBlock, CanonicalTextBlock } from '../providers/types';
 import { extractDocxText, extractPdfText } from './extractText';
 
 interface PendingAttachment {
@@ -80,16 +80,29 @@ export async function pickAttachment(
 
 /** Redeems each id at most once -- an unknown or already-redeemed id is
  *  silently skipped rather than erroring, since a send that races a stale
- *  attachment chip in the renderer should still succeed with what's left. */
-export function takeAttachments(ids: string[]): { blocks: CanonicalContentBlock[]; placeholders: string[] } {
+ *  attachment chip in the renderer should still succeed with what's left.
+ *  Text attachments' full content is returned for persistence
+ *  (persistedTextBlocks); image attachments only ever leave a placeholder
+ *  note behind (imagePlaceholders) -- their bytes are turn-scoped only, see
+ *  CanonicalContentBlock's doc comment in providers/types.ts. */
+export function takeAttachments(ids: string[]): {
+  blocks: CanonicalContentBlock[];
+  persistedTextBlocks: CanonicalTextBlock[];
+  imagePlaceholders: string[];
+} {
   const blocks: CanonicalContentBlock[] = [];
-  const placeholders: string[] = [];
+  const persistedTextBlocks: CanonicalTextBlock[] = [];
+  const imagePlaceholders: string[] = [];
   for (const id of ids) {
     const attachment = pending.get(id);
     if (!attachment) continue;
     blocks.push(attachment.block);
-    placeholders.push(attachment.placeholder);
+    if (attachment.block.type === 'text') {
+      persistedTextBlocks.push(attachment.block);
+    } else {
+      imagePlaceholders.push(attachment.placeholder);
+    }
     pending.delete(id);
   }
-  return { blocks, placeholders };
+  return { blocks, persistedTextBlocks, imagePlaceholders };
 }
