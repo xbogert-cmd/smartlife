@@ -19,6 +19,12 @@ export interface PendingAttachment {
   kind: 'text' | 'image';
 }
 
+export interface ConversationSummary {
+  id: string;
+  title: string | null;
+  updatedAt: string;
+}
+
 function extractText(content: unknown): string {
   if (!Array.isArray(content)) return '';
   return content
@@ -42,6 +48,8 @@ export function useConversation(view: unknown = null) {
   const [apiKeyConfigured, setApiKeyConfigured] = useState<boolean | null>(null);
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [attachError, setAttachError] = useState<string | null>(null);
+  const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const streamingIdRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -51,14 +59,23 @@ export function useConversation(view: unknown = null) {
       .catch(() => setApiKeyConfigured(false));
   }, []);
 
+  const refreshConversations = useCallback(async () => {
+    const list = await window.smartlife.ai.listConversations().catch(() => []);
+    setConversations(list);
+  }, []);
+
+  // Launch always starts a brand-new conversation -- old ones wait in the
+  // sidebar until switched to, never auto-opened.
   useEffect(() => {
     window.smartlife.ai
-      .getHistory()
-      .then((history) => {
-        setMessages(history.map((m, index) => ({ id: `history-${index}`, role: m.role, text: extractText(m.content) })));
+      .createConversation()
+      .then(async (id) => {
+        setActiveConversationId(id);
+        setMessages([]);
+        await refreshConversations();
       })
       .catch(() => {});
-  }, []);
+  }, [refreshConversations]);
 
   // Recovers a confirmation that became pending while the dock was closed
   // (and thus this hook wasn't mounted to catch the live onConfirmRequest
@@ -150,21 +167,25 @@ export function useConversation(view: unknown = null) {
 
   const sendMessage = useCallback(
     (text: string) => {
+      if (!activeConversationId) return;
       const id = `user-${Date.now()}-${Math.random()}`;
       setMessages((prev) => [...prev, { id, role: 'user', text }]);
       setSending(true);
       streamingIdRef.current = null;
       const attachmentIds = attachments.map((a) => a.id);
       setAttachments([]);
-      window.smartlife.ai.sendMessage(text, view, attachmentIds).catch(() => {
-        setSending(false);
-        setMessages((prev) => [
-          ...prev,
-          { id: `assistant-${Date.now()}-${Math.random()}`, role: 'assistant', text: 'Something went wrong — try again.' },
-        ]);
-      });
+      window.smartlife.ai
+        .sendMessage(text, view, attachmentIds, activeConversationId)
+        .then(() => refreshConversations())
+        .catch(() => {
+          setSending(false);
+          setMessages((prev) => [
+            ...prev,
+            { id: `assistant-${Date.now()}-${Math.random()}`, role: 'assistant', text: 'Something went wrong — try again.' },
+          ]);
+        });
     },
-    [view, attachments]
+    [view, attachments, activeConversationId, refreshConversations]
   );
 
   const respondToConfirm = useCallback(
@@ -174,6 +195,43 @@ export function useConversation(view: unknown = null) {
       setPendingConfirm(null);
     },
     [pendingConfirm]
+  );
+
+  const switchConversation = useCallback(async (id: string) => {
+    setActiveConversationId(id);
+    streamingIdRef.current = null;
+    setStatusLabel(null);
+    const history = await window.smartlife.ai.getHistory(id).catch(() => []);
+    setMessages(history.map((m, index) => ({ id: `history-${index}`, role: m.role, text: extractText(m.content) })));
+  }, []);
+
+  const startNewConversation = useCallback(async () => {
+    const id = await window.smartlife.ai.createConversation();
+    setActiveConversationId(id);
+    setMessages([]);
+    streamingIdRef.current = null;
+    setStatusLabel(null);
+    await refreshConversations();
+  }, [refreshConversations]);
+
+  const renameConversation = useCallback(
+    async (id: string, title: string) => {
+      await window.smartlife.ai.renameConversation(id, title);
+      await refreshConversations();
+    },
+    [refreshConversations]
+  );
+
+  const deleteConversation = useCallback(
+    async (id: string) => {
+      await window.smartlife.ai.deleteConversation(id);
+      if (id === activeConversationId) {
+        await startNewConversation();
+      } else {
+        await refreshConversations();
+      }
+    },
+    [activeConversationId, startNewConversation, refreshConversations]
   );
 
   return {
@@ -188,5 +246,11 @@ export function useConversation(view: unknown = null) {
     removeAttachment,
     sendMessage,
     respondToConfirm,
+    conversations,
+    activeConversationId,
+    switchConversation,
+    startNewConversation,
+    renameConversation,
+    deleteConversation,
   };
 }

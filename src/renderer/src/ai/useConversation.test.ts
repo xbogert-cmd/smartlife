@@ -12,6 +12,10 @@ const ai = {
   getPendingConfirmation: vi.fn(),
   onConfirmResolved: vi.fn((_cb: (id: string) => void) => () => {}),
   pickAttachment: vi.fn(),
+  createConversation: vi.fn(),
+  listConversations: vi.fn(),
+  renameConversation: vi.fn(),
+  deleteConversation: vi.fn(),
 };
 
 beforeEach(() => {
@@ -25,10 +29,101 @@ beforeEach(() => {
   ai.onConfirmResolved.mockReturnValue(() => {});
   ai.respondToConfirm.mockResolvedValue(undefined);
   ai.sendMessage.mockResolvedValue(undefined);
+  ai.createConversation.mockResolvedValue('conv-1');
+  ai.listConversations.mockResolvedValue([{ id: 'conv-1', title: null, updatedAt: '2026-01-01 00:00:00' }]);
+  ai.renameConversation.mockResolvedValue(undefined);
+  ai.deleteConversation.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
   vi.clearAllMocks();
+});
+
+describe('useConversation — launch always starts a new conversation', () => {
+  it('creates a new conversation on mount and sets it active', async () => {
+    const { result } = renderHook(() => useConversation());
+    await waitFor(() => expect(ai.createConversation).toHaveBeenCalled());
+    await waitFor(() => expect(result.current.activeConversationId).toBe('conv-1'));
+    expect(result.current.messages).toEqual([]);
+  });
+
+  it('populates the conversations list from listConversations after creating the new one', async () => {
+    const { result } = renderHook(() => useConversation());
+    await waitFor(() => expect(result.current.conversations).toEqual([{ id: 'conv-1', title: null, updatedAt: '2026-01-01 00:00:00' }]));
+  });
+});
+
+describe('useConversation — switching conversations', () => {
+  it('switchConversation sets the active id and loads that conversation’s history', async () => {
+    ai.getHistory.mockImplementation((id: string) =>
+      Promise.resolve(id === 'conv-2' ? [{ role: 'user', content: [{ type: 'text', text: 'old message' }] }] : [])
+    );
+    const { result } = renderHook(() => useConversation());
+    await waitFor(() => expect(result.current.activeConversationId).toBe('conv-1'));
+
+    await act(async () => {
+      await result.current.switchConversation('conv-2');
+    });
+
+    expect(result.current.activeConversationId).toBe('conv-2');
+    expect(result.current.messages).toEqual([{ id: 'history-0', role: 'user', text: 'old message' }]);
+  });
+
+  it('startNewConversation creates and switches to a fresh, empty conversation', async () => {
+    const { result } = renderHook(() => useConversation());
+    await waitFor(() => expect(result.current.activeConversationId).toBe('conv-1'));
+    ai.createConversation.mockResolvedValue('conv-3');
+
+    await act(async () => {
+      await result.current.startNewConversation();
+    });
+
+    expect(result.current.activeConversationId).toBe('conv-3');
+    expect(result.current.messages).toEqual([]);
+  });
+});
+
+describe('useConversation — rename and delete', () => {
+  it('renameConversation calls the IPC method and refreshes the list', async () => {
+    const { result } = renderHook(() => useConversation());
+    await waitFor(() => expect(result.current.activeConversationId).toBe('conv-1'));
+    ai.listConversations.mockResolvedValue([{ id: 'conv-1', title: 'Renamed', updatedAt: '2026-01-01 00:00:00' }]);
+
+    await act(async () => {
+      await result.current.renameConversation('conv-1', 'Renamed');
+    });
+
+    expect(ai.renameConversation).toHaveBeenCalledWith('conv-1', 'Renamed');
+    expect(result.current.conversations).toEqual([{ id: 'conv-1', title: 'Renamed', updatedAt: '2026-01-01 00:00:00' }]);
+  });
+
+  it('deleteConversation on a non-active conversation just refreshes the list', async () => {
+    const { result } = renderHook(() => useConversation());
+    await waitFor(() => expect(result.current.activeConversationId).toBe('conv-1'));
+    ai.listConversations.mockResolvedValue([]);
+
+    await act(async () => {
+      await result.current.deleteConversation('conv-2');
+    });
+
+    expect(ai.deleteConversation).toHaveBeenCalledWith('conv-2');
+    expect(ai.createConversation).toHaveBeenCalledTimes(1); // only the initial mount call, not a fallback
+    expect(result.current.activeConversationId).toBe('conv-1');
+  });
+
+  it('deleting the ACTIVE conversation falls through to a fresh new one', async () => {
+    const { result } = renderHook(() => useConversation());
+    await waitFor(() => expect(result.current.activeConversationId).toBe('conv-1'));
+    ai.createConversation.mockResolvedValue('conv-fresh');
+
+    await act(async () => {
+      await result.current.deleteConversation('conv-1');
+    });
+
+    expect(ai.deleteConversation).toHaveBeenCalledWith('conv-1');
+    expect(result.current.activeConversationId).toBe('conv-fresh');
+    expect(result.current.messages).toEqual([]);
+  });
 });
 
 describe('useConversation — pending confirmation recovery', () => {
@@ -105,9 +200,6 @@ describe('useConversation — pending confirmation recovery', () => {
 
 describe('useConversation — apiKeyConfigured reflects any usable provider', () => {
   it('becomes true from hasUsableProvider even for a Gemini/Ollama-only setup with no Anthropic key', async () => {
-    // The IPC call is ai.hasUsableProvider, not an Anthropic-specific check
-    // -- it resolves true here purely because e.g. Gemini or Ollama is
-    // configured, with no Anthropic key involved at all.
     ai.hasUsableProvider.mockResolvedValue(true);
     const { result } = renderHook(() => useConversation());
     await waitFor(() => expect(result.current.apiKeyConfigured).toBe(true));
@@ -127,7 +219,6 @@ describe('useConversation — provider-switched stream event', () => {
     await waitFor(() => expect(ai.getPendingConfirmation).toHaveBeenCalled());
     const onEvent = ai.onStreamEvent.mock.calls[0][0] as (event: unknown) => void;
 
-    // Provider A streams partial text -- accumulates into one message.
     onEvent({ type: 'text-delta', text: 'Hello, I' });
     onEvent({ type: 'text-delta', text: 'm working on' });
 
@@ -137,7 +228,6 @@ describe('useConversation — provider-switched stream event', () => {
       expect(assistantMessages[0].text).toBe('Hello, Im working on');
     });
 
-    // Provider A fails; FallbackProvider switches to Provider B.
     onEvent({ type: 'provider-switched', from: 'Claude Sonnet 5', to: 'Gemini Flash', reason: 'credit balance too low' });
 
     await waitFor(() => {
@@ -146,8 +236,6 @@ describe('useConversation — provider-switched stream event', () => {
       expect(switchNotices[0].text).toContain('Gemini Flash');
     });
 
-    // Provider B streams its own fresh answer -- this must land in a NEW
-    // message, not get appended onto Provider A's partial text.
     onEvent({ type: 'text-delta', text: 'I can help with that.' });
 
     await waitFor(() => {
@@ -208,9 +296,10 @@ describe('useConversation — attachments', () => {
     expect(result.current.attachments).toEqual([]);
   });
 
-  it('sendMessage passes the current attachment ids and clears them afterward', async () => {
+  it('sendMessage passes the active conversation id and current attachment ids, and clears attachments afterward', async () => {
     ai.pickAttachment.mockResolvedValue({ ok: true, id: 'attach-1', name: 'notes.txt', kind: 'text' });
     const { result } = renderHook(() => useConversation());
+    await waitFor(() => expect(result.current.activeConversationId).toBe('conv-1'));
     await act(async () => {
       await result.current.addAttachment();
     });
@@ -219,7 +308,7 @@ describe('useConversation — attachments', () => {
       result.current.sendMessage('hi');
     });
 
-    expect(ai.sendMessage).toHaveBeenCalledWith('hi', null, ['attach-1']);
+    expect(ai.sendMessage).toHaveBeenCalledWith('hi', null, ['attach-1'], 'conv-1');
     expect(result.current.attachments).toEqual([]);
   });
 });
