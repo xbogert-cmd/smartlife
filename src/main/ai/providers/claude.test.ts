@@ -50,6 +50,51 @@ describe('createClaudeProvider', () => {
   });
 });
 
+describe('createClaudeProvider — usage tracking', () => {
+  function fakeMessageStream(finalMessage: {
+    content: Array<{ type: 'text'; text: string }>;
+    usage: { input_tokens: number; output_tokens: number };
+  }) {
+    return {
+      [Symbol.asyncIterator]: () => (async function* () {})(),
+      finalMessage: async () => finalMessage,
+    };
+  }
+
+  it('reports usage summed across every round the tool runner yields, and the identity it was constructed with', async () => {
+    const round1 = fakeMessageStream({
+      content: [{ type: 'text', text: '' }],
+      usage: { input_tokens: 100, output_tokens: 20 },
+    });
+    const round2 = fakeMessageStream({
+      content: [{ type: 'text', text: 'final answer' }],
+      usage: { input_tokens: 130, output_tokens: 15 },
+    });
+    const toolRunner = vi.fn().mockReturnValue(
+      (async function* () {
+        yield round1;
+        yield round2;
+      })()
+    );
+    vi.mocked(Anthropic).mockReturnValue({ beta: { messages: { toolRunner } } } as never);
+
+    const provider = createClaudeProvider('sk-ant-test', 'claude-sonnet-5');
+    const result = await provider.streamTurn({
+      system: 's',
+      history: [],
+      userText: 'hi',
+      tools: [],
+      ctx: fakeCtx(),
+      onEvent: vi.fn(),
+    });
+
+    expect(result.content).toEqual([{ type: 'text', text: 'final answer' }]);
+    expect(result.usage).toEqual({ inputTokens: 230, outputTokens: 35 });
+    expect(result.providerId).toBe('anthropic');
+    expect(result.model).toBe('claude-sonnet-5');
+  });
+});
+
 describe('web search capability', () => {
   it('adds the hosted web_search tool for a model whose catalog entry supports it', async () => {
     const toolRunner = vi.fn().mockReturnValue(emptyRunner());

@@ -2,7 +2,7 @@ import Anthropic, { APIError } from '@anthropic-ai/sdk';
 import { betaTool } from '@anthropic-ai/sdk/helpers/beta/json-schema';
 import type { ToolContext, ToolDefinition } from '../tools/types';
 import { findCatalogEntry } from './catalog';
-import { ProviderError, type AIProvider, type CanonicalTextBlock, type StreamEvent } from './types';
+import { ProviderError, type AIProvider, type CanonicalTextBlock, type StreamEvent, type TurnResult } from './types';
 
 export function toBetaTools(tools: ToolDefinition[], ctx: ToolContext, visionCapable: boolean) {
   return tools
@@ -102,6 +102,8 @@ export function createClaudeProvider(apiKey: string, model: string): AIProvider 
       });
 
       let finalText = '';
+      let totalInputTokens = 0;
+      let totalOutputTokens = 0;
 
       try {
         for await (const messageStream of runner) {
@@ -120,6 +122,8 @@ export function createClaudeProvider(apiKey: string, model: string): AIProvider 
             .filter((block): block is Anthropic.Beta.Messages.BetaTextBlock => block.type === 'text')
             .map((block) => block.text)
             .join('');
+          totalInputTokens += finalMessage.usage.input_tokens;
+          totalOutputTokens += finalMessage.usage.output_tokens;
         }
       } catch (error) {
         const message = describeError(error);
@@ -127,7 +131,12 @@ export function createClaudeProvider(apiKey: string, model: string): AIProvider 
       }
 
       onEvent({ type: 'turn-complete' } satisfies StreamEvent);
-      return [{ type: 'text', text: finalText }] satisfies CanonicalTextBlock[];
+      return {
+        content: [{ type: 'text', text: finalText }],
+        usage: { inputTokens: totalInputTokens, outputTokens: totalOutputTokens },
+        providerId: 'anthropic',
+        model,
+      } satisfies TurnResult;
     },
   };
 }
