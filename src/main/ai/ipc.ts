@@ -3,7 +3,7 @@ import type Database from 'better-sqlite3';
 import { setStoredApiKey, hasStoredApiKey } from './apiKey';
 import { getAiMode, setAiMode } from './mode';
 import type { AiMode } from './permissions';
-import { getOrCreateConversationId, getMessages } from './conversation';
+import { getMessages, createConversation, listConversations, renameConversation, deleteConversation } from './conversation';
 import { getPendingConfirmation, resolveConfirmation, setConfirmationBroadcaster } from './confirmations';
 import { handleSendMessage } from './chatController';
 import type { ViewContext } from './viewContext';
@@ -34,16 +34,26 @@ export function registerAiIpcHandlers(db: Database.Database, getWindow: () => Br
     setAiMode(db, mode);
   });
 
-  ipcMain.handle('ai:send-message', (_event, text: string, view: ViewContext | null, attachmentIds: string[] = []) =>
-    handleSendMessage(db, getWindow, text, view ?? null, { attachmentIds })
+  ipcMain.handle(
+    'ai:send-message',
+    (_event, text: string, view: ViewContext | null, attachmentIds: string[] = [], conversationId: string) =>
+      handleSendMessage(db, getWindow, text, view ?? null, conversationId, { attachmentIds })
   );
   ipcMain.handle('ai:confirm-response', (_event, id: string, approved: boolean) => {
     resolveConfirmation(id, approved);
   });
   ipcMain.handle('ai:get-pending-confirmation', () => getPendingConfirmation());
-  ipcMain.handle('ai:get-history', () => {
-    const conversationId = getOrCreateConversationId(db);
+  ipcMain.handle('ai:get-history', (_event, conversationId: string) => {
     return getMessages(db, conversationId).map((m) => ({ role: m.role, content: JSON.parse(m.content) }));
+  });
+
+  ipcMain.handle('ai:list-conversations', () => listConversations(db));
+  ipcMain.handle('ai:create-conversation', () => createConversation(db));
+  ipcMain.handle('ai:rename-conversation', (_event, id: string, title: string) => {
+    renameConversation(db, id, title);
+  });
+  ipcMain.handle('ai:delete-conversation', (_event, id: string) => {
+    deleteConversation(db, id);
   });
 
   ipcMain.handle('ai:get-catalog', () => CATALOG);

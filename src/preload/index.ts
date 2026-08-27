@@ -128,6 +128,12 @@ type PickAttachmentResult =
   | { ok: true; id: string; name: string; kind: 'text' | 'image' }
   | { ok: false; reason: string };
 
+interface ConversationSummary {
+  id: string;
+  title: string | null;
+  updatedAt: string;
+}
+
 const smartlife = {
   theme: {
     get: (): Promise<'light' | 'dark' | 'system'> => ipcRenderer.invoke('theme:get'),
@@ -158,8 +164,8 @@ const smartlife = {
     setApiKey: (apiKey: string): Promise<void> => ipcRenderer.invoke('ai:set-api-key', apiKey),
     getMode: (): Promise<'ask' | 'assist' | 'auto'> => ipcRenderer.invoke('ai:get-mode'),
     setMode: (mode: 'ask' | 'assist' | 'auto'): Promise<void> => ipcRenderer.invoke('ai:set-mode', mode),
-    sendMessage: (text: string, view: unknown = null, attachmentIds: string[] = []): Promise<void> =>
-      ipcRenderer.invoke('ai:send-message', text, view, attachmentIds),
+    sendMessage: (text: string, view: unknown = null, attachmentIds: string[] = [], conversationId: string): Promise<void> =>
+      ipcRenderer.invoke('ai:send-message', text, view, attachmentIds, conversationId),
     onStreamEvent: (cb: (event: StreamEvent) => void): (() => void) => {
       const listener = (_event: Electron.IpcRendererEvent, streamEvent: StreamEvent) => cb(streamEvent);
       ipcRenderer.on('ai:stream-event', listener);
@@ -171,7 +177,7 @@ const smartlife = {
       return () => ipcRenderer.removeListener('ai:confirm-request', listener);
     },
     respondToConfirm: (id: string, approved: boolean): Promise<void> => ipcRenderer.invoke('ai:confirm-response', id, approved),
-    getHistory: (): Promise<AiMessage[]> => ipcRenderer.invoke('ai:get-history'),
+    getHistory: (conversationId: string): Promise<AiMessage[]> => ipcRenderer.invoke('ai:get-history', conversationId),
     getPendingConfirmation: (): Promise<ConfirmRequest | null> => ipcRenderer.invoke('ai:get-pending-confirmation'),
     onConfirmResolved: (cb: (id: string) => void): (() => void) => {
       const listener = (_event: Electron.IpcRendererEvent, id: string) => cb(id);
@@ -194,6 +200,11 @@ const smartlife = {
       ipcRenderer.invoke('ai:retry-provider-entry', providerId, model),
     hasUsableProvider: (): Promise<boolean> => ipcRenderer.invoke('ai:has-usable-provider'),
     pickAttachment: (): Promise<PickAttachmentResult | null> => ipcRenderer.invoke('ai:pick-attachment'),
+    listConversations: (): Promise<ConversationSummary[]> => ipcRenderer.invoke('ai:list-conversations'),
+    createConversation: (): Promise<string> => ipcRenderer.invoke('ai:create-conversation'),
+    renameConversation: (id: string, title: string): Promise<void> =>
+      ipcRenderer.invoke('ai:rename-conversation', id, title),
+    deleteConversation: (id: string): Promise<void> => ipcRenderer.invoke('ai:delete-conversation', id),
   },
   canvas: {
     getStatus: (): Promise<CanvasSyncStatus> => ipcRenderer.invoke('canvas:get-status'),

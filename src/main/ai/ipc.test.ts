@@ -149,3 +149,34 @@ describe('ai:pick-attachment', () => {
     expect(result).toEqual({ ok: true, id: 'attach-1', name: 'notes.txt', kind: 'text' });
   });
 });
+
+describe('conversation lifecycle IPC handlers', () => {
+  it('creates a conversation and lists it newest-first', async () => {
+    const { call } = await setup();
+    const id = await call('ai:create-conversation');
+    expect(typeof id).toBe('string');
+    const list = (await call('ai:list-conversations')) as Array<{ id: string; title: string | null }>;
+    expect(list).toEqual([{ id, title: null, updatedAt: expect.any(String) }]);
+  });
+
+  it('renames a conversation', async () => {
+    const { call } = await setup();
+    const id = await call('ai:create-conversation');
+    await call('ai:rename-conversation', id, 'My Chat');
+    const list = (await call('ai:list-conversations')) as Array<{ title: string | null }>;
+    expect(list[0].title).toBe('My Chat');
+  });
+
+  it('deletes a conversation', async () => {
+    const { call } = await setup();
+    const id = await call('ai:create-conversation');
+    await call('ai:delete-conversation', id);
+    expect(await call('ai:list-conversations')).toEqual([]);
+  });
+
+  it('gets history scoped to a specific conversation id', async () => {
+    const { call } = await setup();
+    const id = await call('ai:create-conversation');
+    expect(await call('ai:get-history', id)).toEqual([]);
+  });
+});
