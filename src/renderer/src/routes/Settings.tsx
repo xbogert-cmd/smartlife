@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { CalendarToggles } from '../calendar/CalendarToggles';
 import { useTheme } from '../theme/ThemeProvider';
 import { AIProvidersSection } from './settings/AIProvidersSection';
+import { UsageSection } from './settings/UsageSection';
 
 const OPTIONS = ['light', 'dark', 'system'] as const;
 
@@ -155,6 +156,7 @@ export function Settings() {
         </div>
       </div>
       <AIProvidersSection />
+      <UsageSection />
       <div className="flex flex-col gap-2">
         <span style={{ color: 'var(--color-text-muted)' }}>AI permission mode</span>
         <div className="flex gap-2">

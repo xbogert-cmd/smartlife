@@ -43,6 +43,7 @@ beforeEach(() => {
       setPinnedEntry: vi.fn().mockResolvedValue(undefined),
       clearPinnedEntry: vi.fn().mockResolvedValue(undefined),
       retryProviderEntry: vi.fn().mockResolvedValue(undefined),
+      getUsageSummary: vi.fn().mockResolvedValue([]),
     },
     canvas: {
       getStatus: vi.fn().mockResolvedValue({
