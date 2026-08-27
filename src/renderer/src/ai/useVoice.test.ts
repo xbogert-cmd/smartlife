@@ -207,6 +207,25 @@ describe('useVoice — recording and transcription', () => {
     expect(getUserMedia).toHaveBeenCalledTimes(1);
     expect(result.current.isRecording).toBe(true);
   });
+
+  it('tears down the mic session if the component unmounts while recording', async () => {
+    const { result, unmount } = renderHook(() => useVoice({ messages: [], sending: false, sendMessage: vi.fn() }));
+
+    await act(async () => {
+      await result.current.toggleRecording();
+    });
+    expect(result.current.isRecording).toBe(true);
+
+    unmount();
+
+    expect(fakeTrack.stop).toHaveBeenCalled();
+  });
+
+  it('does nothing on unmount when no recording is in progress', () => {
+    const { unmount } = renderHook(() => useVoice({ messages: [], sending: false, sendMessage: vi.fn() }));
+    expect(() => unmount()).not.toThrow();
+    expect(fakeTrack.stop).not.toHaveBeenCalled();
+  });
 });
 
 describe('useVoice — speaking a completed reply', () => {
