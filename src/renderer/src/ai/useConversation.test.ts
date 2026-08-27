@@ -517,7 +517,18 @@ describe('useConversation — attachments', () => {
       result.current.sendMessage('hi');
     });
 
-    expect(ai.sendMessage).toHaveBeenCalledWith('hi', null, ['attach-1'], 'conv-1');
+    expect(ai.sendMessage).toHaveBeenCalledWith('hi', null, ['attach-1'], 'conv-1', false);
     expect(result.current.attachments).toEqual([]);
+  });
+
+  it('sendMessage passes voiceMode through as the 5th argument when set', async () => {
+    const { result } = renderHook(() => useConversation());
+    await waitFor(() => expect(result.current.activeConversationId).toBe('conv-1'));
+
+    act(() => {
+      result.current.sendMessage('hi', null, true);
+    });
+
+    expect(ai.sendMessage).toHaveBeenCalledWith('hi', null, [], 'conv-1', true);
   });
 });

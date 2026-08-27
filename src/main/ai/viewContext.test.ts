@@ -163,6 +163,14 @@ describe('buildSystemPrompt', () => {
     expect(prompt.toLowerCase()).toContain('calendar');
     expect(prompt).toContain('evt-1');
   });
+
+  it('adds a voice-mode line telling the assistant its response will be spoken aloud', () => {
+    const withVoice = buildSystemPrompt(setup(), null, NOW, true);
+    const withoutVoice = buildSystemPrompt(setup(), null, NOW, false);
+    expect(withVoice).toContain('voice conversation');
+    expect(withVoice).toContain('no markdown formatting');
+    expect(withoutVoice).not.toContain('voice conversation');
+  });
 });
 
 describe('buildSystemPrompt — browser route', () => {

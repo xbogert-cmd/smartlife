@@ -244,7 +244,7 @@ export function useConversation() {
   }, []);
 
   const sendMessage = useCallback(
-    (text: string, view: unknown = null) => {
+    (text: string, view: unknown = null, voiceMode = false) => {
       if (!activeConversationId) return;
       const id = `user-${Date.now()}-${Math.random()}`;
       setMessages((prev) => [...prev, { id, role: 'user', text }]);
@@ -254,7 +254,7 @@ export function useConversation() {
       const attachmentIds = attachments.map((a) => a.id);
       setAttachments([]);
       window.smartlife.ai
-        .sendMessage(text, view, attachmentIds, activeConversationId)
+        .sendMessage(text, view, attachmentIds, activeConversationId, voiceMode)
         .then(() => refreshConversations())
         .catch(() => {
           setSending(false);

@@ -382,6 +382,26 @@ describe('system prompt', () => {
       handleSendMessage(db, () => fakeWindow() as never, 'hi', null, conversationId, { provider: { streamTurn } })
     ).resolves.toBeUndefined();
   });
+
+  it('passes voiceMode through to buildSystemPrompt when the option is set', async () => {
+    const { handleSendMessage } = await import('./chatController');
+    const db = makeDb();
+    setStoredApiKey(db, 'sk-ant-test');
+    const conversationId = await makeConversation(db);
+    const streamTurn = vi.fn().mockResolvedValue({
+      content: [{ type: 'text', text: 'ok' }],
+      usage: { inputTokens: 1, outputTokens: 1 },
+      providerId: 'anthropic',
+      model: 'claude-sonnet-5',
+    });
+    await handleSendMessage(db, () => fakeWindow() as never, 'hi', null, conversationId, {
+      provider: { streamTurn },
+      voiceMode: true,
+    });
+
+    const system = streamTurn.mock.calls[0][0].system as string;
+    expect(system).toContain('voice conversation');
+  });
 });
 
 describe('attachments', () => {

@@ -37,8 +37,8 @@ export function registerAiIpcHandlers(db: Database.Database, getWindow: () => Br
 
   ipcMain.handle(
     'ai:send-message',
-    (_event, text: string, view: ViewContext | null, attachmentIds: string[] = [], conversationId: string) =>
-      handleSendMessage(db, getWindow, text, view ?? null, conversationId, { attachmentIds })
+    (_event, text: string, view: ViewContext | null, attachmentIds: string[] = [], conversationId: string, voiceMode = false) =>
+      handleSendMessage(db, getWindow, text, view ?? null, conversationId, { attachmentIds, voiceMode })
   );
   ipcMain.handle('ai:confirm-response', (_event, id: string, approved: boolean) => {
     resolveConfirmation(id, approved);

@@ -176,10 +176,16 @@ function viewLine(db: Database.Database, view: ViewContext | null): string | nul
 export function buildSystemPrompt(
   db: Database.Database,
   view: ViewContext | null,
-  now: Date = new Date()
+  now: Date = new Date(),
+  voiceMode = false
 ): string {
   const lines = [BASE_PROMPT, `The current date and time is ${now.toISOString()}.`];
   const where = viewLine(db, view);
   if (where !== null) lines.push(where);
+  if (voiceMode) {
+    lines.push(
+      'The user is in a voice conversation right now — your response will be read aloud. Keep it natural to speak: no markdown formatting, no code blocks, no bullet lists, and keep it reasonably concise.'
+    );
+  }
   return lines.join('\n\n');
 }

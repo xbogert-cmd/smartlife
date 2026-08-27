@@ -30,9 +30,9 @@ export async function handleSendMessage(
   userText: string,
   view: ViewContext | null,
   conversationId: string,
-  options: { attachmentIds?: string[]; provider?: AIProvider } = {}
+  options: { attachmentIds?: string[]; provider?: AIProvider; voiceMode?: boolean } = {}
 ): Promise<void> {
-  const { attachmentIds = [], provider = getProvider(db) } = options;
+  const { attachmentIds = [], provider = getProvider(db), voiceMode = false } = options;
   const send = (event: StreamEvent): void =>
     getWindow()?.webContents.send('ai:stream-event', { ...event, conversationId });
 
@@ -78,7 +78,7 @@ export async function handleSendMessage(
 
     try {
       const result = await provider.streamTurn({
-        system: buildSystemPrompt(db, view),
+        system: buildSystemPrompt(db, view, undefined, voiceMode),
         history,
         userText,
         attachments: attachments.length > 0 ? attachments : undefined,
