@@ -68,6 +68,7 @@ export function ConversationSidebar({
             >
               {renamingId === conversation.id ? (
                 <input
+                  aria-label="Conversation title"
                   autoFocus
                   value={renameValue}
                   onChange={(event) => setRenameValue(event.target.value)}
