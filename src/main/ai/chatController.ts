@@ -1,40 +1,48 @@
 import type { BrowserWindow } from 'electron';
 import type Database from 'better-sqlite3';
 import { getAiMode } from './mode';
-import { getOrCreateConversationId, appendMessage, getMessages } from './conversation';
+import { appendMessage, getMessages, setConversationTitleIfUnset } from './conversation';
 import { requestConfirmation as requestToolConfirmation } from './confirmations';
 import { TOOLS } from './tools/registry';
 import { getProvider } from './router';
 import { takeAttachments } from './attachments/pickAttachment';
 import type { ToolContext } from './tools/types';
-import { ProviderError, type AIProvider, type CanonicalImageBlock, type StreamEvent } from './providers/types';
+import {
+  ProviderError,
+  type AIProvider,
+  type CanonicalContentBlock,
+  type CanonicalImageBlock,
+  type StreamEvent,
+} from './providers/types';
 import { buildSystemPrompt, type ViewContext } from './viewContext';
 import { notifyIfUnfocused } from '../notify';
 import { logError } from '../log';
 
-// ponytail: single in-flight flag, only one conversation exists app-wide today.
-// Upgrade to a Set keyed by conversation id if multi-conversation support lands.
-let turnInFlight = false;
+/** One entry per conversation currently mid-turn -- lets two different
+ *  conversations send concurrently while still serializing turns within the
+ *  same conversation (a second send to a conversation already in flight gets
+ *  the "still working" reply instead of starting a second stream). */
+const conversationsInFlight = new Set<string>();
 
 export async function handleSendMessage(
   db: Database.Database,
   getWindow: () => BrowserWindow | null,
   userText: string,
   view: ViewContext | null,
+  conversationId: string,
   options: { attachmentIds?: string[]; provider?: AIProvider } = {}
 ): Promise<void> {
   const { attachmentIds = [], provider = getProvider(db) } = options;
   const send = (event: StreamEvent): void => getWindow()?.webContents.send('ai:stream-event', event);
 
-  if (turnInFlight) {
+  if (conversationsInFlight.has(conversationId)) {
     send({ type: 'text-delta', text: 'Still working on the last message — try again in a moment.' });
     send({ type: 'turn-complete' });
     return;
   }
 
-  turnInFlight = true;
+  conversationsInFlight.add(conversationId);
   try {
-    const conversationId = getOrCreateConversationId(db);
     const mode = getAiMode(db);
     const history = getMessages(db, conversationId).map((m) => ({
       role: m.role,
@@ -65,7 +73,7 @@ export async function handleSendMessage(
       },
     };
 
-    const { blocks: attachments, placeholders } = takeAttachments(attachmentIds);
+    const { blocks: attachments, persistedTextBlocks, imagePlaceholders } = takeAttachments(attachmentIds);
 
     try {
       const finalContent = await provider.streamTurn({
@@ -77,8 +85,13 @@ export async function handleSendMessage(
         ctx,
         onEvent: send,
       });
-      const persistedUserText = placeholders.length > 0 ? `${userText}\n\n${placeholders.join('\n')}` : userText;
-      appendMessage(db, conversationId, 'user', [{ type: 'text', text: persistedUserText }]);
+      const userContent: CanonicalContentBlock[] = [
+        { type: 'text', text: userText },
+        ...persistedTextBlocks,
+        ...(imagePlaceholders.length > 0 ? [{ type: 'text' as const, text: imagePlaceholders.join('\n') }] : []),
+      ];
+      appendMessage(db, conversationId, 'user', userContent);
+      setConversationTitleIfUnset(db, conversationId, userText);
       appendMessage(db, conversationId, 'assistant', finalContent);
     } catch (error) {
       // Every other main-process error path (browser, sync, downloads) is
@@ -95,6 +108,6 @@ export async function handleSendMessage(
       send({ type: 'turn-complete' });
     }
   } finally {
-    turnInFlight = false;
+    conversationsInFlight.delete(conversationId);
   }
 }
