@@ -49,6 +49,13 @@ export type ProviderId = 'anthropic' | 'gemini' | 'ollama';
  */
 export class ProviderError extends Error {}
 
+export interface TurnResult {
+  content: CanonicalTextBlock[];
+  usage: { inputTokens: number; outputTokens: number };
+  providerId: ProviderId;
+  model: string;
+}
+
 export interface AIProvider {
   streamTurn(params: {
     system: string;
@@ -60,5 +67,5 @@ export interface AIProvider {
     tools: ToolDefinition[];
     ctx: ToolContext;
     onEvent: (event: StreamEvent) => void;
-  }): Promise<CanonicalTextBlock[]>;
+  }): Promise<TurnResult>;
 }
