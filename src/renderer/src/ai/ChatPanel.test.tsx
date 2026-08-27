@@ -30,6 +30,11 @@ function panel(count: number) {
         attachError={null}
         onAddAttachment={() => {}}
         onRemoveAttachment={() => {}}
+        voiceModeOn={false}
+        onToggleVoiceMode={vi.fn()}
+        isRecording={false}
+        onToggleRecording={vi.fn()}
+        voiceError={null as string | null}
       />
     </MemoryRouter>
   );
@@ -91,6 +96,11 @@ describe('ChatPanel switch notices', () => {
           attachError={null}
           onAddAttachment={vi.fn()}
           onRemoveAttachment={vi.fn()}
+          voiceModeOn={false}
+          onToggleVoiceMode={vi.fn()}
+          isRecording={false}
+          onToggleRecording={vi.fn()}
+          voiceError={null as string | null}
         />
       </MemoryRouter>
     );
@@ -115,6 +125,11 @@ describe('ChatPanel attachments', () => {
     attachError: null as string | null,
     onAddAttachment: vi.fn(),
     onRemoveAttachment: vi.fn(),
+    voiceModeOn: false,
+    onToggleVoiceMode: vi.fn(),
+    isRecording: false,
+    onToggleRecording: vi.fn(),
+    voiceError: null as string | null,
   };
 
   it('renders an attach chip per pending attachment with a remove control', () => {
@@ -172,6 +187,11 @@ describe('ChatPanel answeredBy caption', () => {
     attachError: null as string | null,
     onAddAttachment: vi.fn(),
     onRemoveAttachment: vi.fn(),
+    voiceModeOn: false,
+    onToggleVoiceMode: vi.fn(),
+    isRecording: false,
+    onToggleRecording: vi.fn(),
+    voiceError: null as string | null,
   };
 
   it('renders an answeredBy caption under an assistant message that has one', () => {
@@ -190,5 +210,72 @@ describe('ChatPanel answeredBy caption', () => {
       </MemoryRouter>
     );
     expect(screen.queryByText('Claude Sonnet 5')).not.toBeInTheDocument();
+  });
+});
+
+describe('ChatPanel voice mode', () => {
+  const baseProps = {
+    messages: [] as ChatMessage[],
+    statusLabel: null,
+    pendingConfirm: null,
+    sending: false,
+    apiKeyConfigured: true,
+    input: '',
+    onInputChange: vi.fn(),
+    onSubmit: vi.fn(),
+    onRespondToConfirm: vi.fn(),
+    attachments: [] as { id: string; name: string; kind: 'text' | 'image' }[],
+    attachError: null as string | null,
+    onAddAttachment: vi.fn(),
+    onRemoveAttachment: vi.fn(),
+  };
+
+  it('does not show a mic button when voice mode is off', () => {
+    render(
+      <MemoryRouter>
+        <ChatPanel {...baseProps} voiceModeOn={false} onToggleVoiceMode={vi.fn()} isRecording={false} onToggleRecording={vi.fn()} voiceError={null} />
+      </MemoryRouter>
+    );
+    expect(screen.queryByRole('button', { name: /voice input/i })).not.toBeInTheDocument();
+  });
+
+  it('shows a mic button when voice mode is on, and toggling it calls onToggleRecording', async () => {
+    const onToggleRecording = vi.fn();
+    render(
+      <MemoryRouter>
+        <ChatPanel {...baseProps} voiceModeOn={true} onToggleVoiceMode={vi.fn()} isRecording={false} onToggleRecording={onToggleRecording} voiceError={null} />
+      </MemoryRouter>
+    );
+    await userEvent.click(screen.getByRole('button', { name: /start voice input/i }));
+    expect(onToggleRecording).toHaveBeenCalled();
+  });
+
+  it('shows a visibly different control while recording', () => {
+    render(
+      <MemoryRouter>
+        <ChatPanel {...baseProps} voiceModeOn={true} onToggleVoiceMode={vi.fn()} isRecording={true} onToggleRecording={vi.fn()} voiceError={null} />
+      </MemoryRouter>
+    );
+    expect(screen.getByRole('button', { name: /stop voice input/i })).toBeInTheDocument();
+  });
+
+  it('shows voiceError text when present', () => {
+    render(
+      <MemoryRouter>
+        <ChatPanel {...baseProps} voiceModeOn={true} onToggleVoiceMode={vi.fn()} isRecording={false} onToggleRecording={vi.fn()} voiceError="Could not access the microphone. Check your system permissions." />
+      </MemoryRouter>
+    );
+    expect(screen.getByText('Could not access the microphone. Check your system permissions.')).toBeInTheDocument();
+  });
+
+  it('calls onToggleVoiceMode when the voice mode toggle is clicked', async () => {
+    const onToggleVoiceMode = vi.fn();
+    render(
+      <MemoryRouter>
+        <ChatPanel {...baseProps} voiceModeOn={false} onToggleVoiceMode={onToggleVoiceMode} isRecording={false} onToggleRecording={vi.fn()} voiceError={null} />
+      </MemoryRouter>
+    );
+    await userEvent.click(screen.getByRole('button', { name: /voice mode/i }));
+    expect(onToggleVoiceMode).toHaveBeenCalled();
   });
 });

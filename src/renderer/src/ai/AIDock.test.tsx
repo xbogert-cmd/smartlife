@@ -23,6 +23,7 @@ beforeEach(() => {
       getPendingConfirmation: vi.fn().mockResolvedValue(null),
       onConfirmResolved: vi.fn(() => () => {}),
       pickAttachment: vi.fn().mockResolvedValue(null),
+      transcribeAudio: vi.fn().mockResolvedValue({ ok: false, reason: 'not used in this test' }),
       createConversation: vi.fn().mockResolvedValue('conv-1'),
       listConversations: vi.fn().mockResolvedValue([]),
       renameConversation: vi.fn().mockResolvedValue(undefined),

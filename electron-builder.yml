@@ -8,5 +8,7 @@ files:
   - package.json
 mac:
   category: public.app-category.productivity
+  extendInfo:
+    NSMicrophoneUsageDescription: "SmartLife uses your microphone to let you talk to the AI assistant."
   target:
     - target: dir

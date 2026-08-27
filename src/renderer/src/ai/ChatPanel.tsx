@@ -18,6 +18,11 @@ export interface ChatPanelProps {
   onRemoveAttachment: (id: string) => void;
   /** Called before navigating to Settings from the empty state — lets AIDock close itself first. */
   onNavigateAway?: () => void;
+  voiceModeOn: boolean;
+  onToggleVoiceMode: () => void;
+  isRecording: boolean;
+  onToggleRecording: () => void;
+  voiceError: string | null;
 }
 
 export function ChatPanel({
@@ -35,6 +40,11 @@ export function ChatPanel({
   onAddAttachment,
   onRemoveAttachment,
   onNavigateAway,
+  voiceModeOn,
+  onToggleVoiceMode,
+  isRecording,
+  onToggleRecording,
+  voiceError,
 }: ChatPanelProps) {
   const navigate = useNavigate();
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -72,6 +82,22 @@ export function ChatPanel({
 
   return (
     <div className="flex h-full flex-col">
+      <div className="flex items-center justify-end gap-2 px-4 pt-3">
+        <button
+          type="button"
+          onClick={onToggleVoiceMode}
+          aria-label="Voice mode"
+          aria-pressed={voiceModeOn}
+          className="rounded-md px-2 py-1 text-xs"
+          style={{
+            backgroundColor: voiceModeOn ? 'var(--color-text)' : 'var(--color-surface)',
+            color: voiceModeOn ? 'var(--color-bg)' : 'var(--color-text)',
+            border: '1px solid var(--color-border)',
+          }}
+        >
+          🎙 Voice mode
+        </button>
+      </div>
       <div ref={scrollRef} className="flex flex-1 flex-col gap-3 overflow-auto p-6">
         {messages.map((message) =>
           message.kind === 'switch-notice' ? (
@@ -137,7 +163,7 @@ export function ChatPanel({
           </div>
         )}
       </div>
-      {(attachments.length > 0 || attachError) && (
+      {(attachments.length > 0 || attachError || voiceError) && (
         <div className="flex flex-wrap items-center gap-2 px-4 pt-3">
           {attachments.map((attachment) => (
             <span
@@ -157,9 +183,25 @@ export function ChatPanel({
             </span>
           ))}
           {attachError && <span style={{ color: '#EF4444', fontSize: 12 }}>{attachError}</span>}
+          {voiceError && <span style={{ color: '#EF4444', fontSize: 12 }}>{voiceError}</span>}
         </div>
       )}
       <form onSubmit={onSubmit} className="flex gap-2 p-4" style={{ borderTop: '1px solid var(--color-border)' }}>
+        {voiceModeOn && (
+          <button
+            type="button"
+            onClick={onToggleRecording}
+            aria-label={isRecording ? 'Stop voice input' : 'Start voice input'}
+            className="rounded-md px-3 py-2 text-sm"
+            style={{
+              backgroundColor: isRecording ? '#EF4444' : 'var(--color-surface)',
+              color: isRecording ? '#ffffff' : 'var(--color-text)',
+              border: '1px solid var(--color-border)',
+            }}
+          >
+            {isRecording ? '● Stop' : '🎙'}
+          </button>
+        )}
         <button
           type="button"
           onClick={onAddAttachment}
