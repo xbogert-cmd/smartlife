@@ -78,6 +78,15 @@ describe('capability flags', () => {
   });
 });
 
+describe('pricing', () => {
+  it('every catalog entry has a positive price per million tokens for both input and output', () => {
+    for (const entry of CATALOG) {
+      expect(entry.inputPricePerMTok).toBeGreaterThan(0);
+      expect(entry.outputPricePerMTok).toBeGreaterThan(0);
+    }
+  });
+});
+
 describe('isKnownGoodForVision', () => {
   it('matches known vision-capable local model prefixes case-insensitively', () => {
     expect(isKnownGoodForVision('llava:13b')).toBe(true);

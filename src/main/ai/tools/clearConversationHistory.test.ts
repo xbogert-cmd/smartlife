@@ -14,6 +14,7 @@ create table ai_messages (
   id text primary key,
   conversation_id text not null references ai_conversations(id) on delete cascade,
   role text not null, content text not null,
+  provider text, model text, input_tokens integer, output_tokens integer,
   created_at text not null default (datetime('now'))
 );
 `;

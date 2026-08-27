@@ -77,7 +77,7 @@ export async function handleSendMessage(
     const { blocks: attachments, persistedTextBlocks, imagePlaceholders } = takeAttachments(attachmentIds);
 
     try {
-      const finalContent = await provider.streamTurn({
+      const result = await provider.streamTurn({
         system: buildSystemPrompt(db, view),
         history,
         userText,
@@ -93,7 +93,12 @@ export async function handleSendMessage(
       ];
       appendMessage(db, conversationId, 'user', userContent);
       setConversationTitleIfUnset(db, conversationId, userText);
-      appendMessage(db, conversationId, 'assistant', finalContent);
+      appendMessage(db, conversationId, 'assistant', result.content, {
+        providerId: result.providerId,
+        model: result.model,
+        inputTokens: result.usage.inputTokens,
+        outputTokens: result.usage.outputTokens,
+      });
     } catch (error) {
       // Every other main-process error path (browser, sync, downloads) is
       // persisted via logError so it survives past the session that hit it --

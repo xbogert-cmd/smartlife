@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
+import { CATALOG } from './providers/catalog';
 
 export interface StoredMessage {
   id: string;
@@ -63,15 +64,58 @@ export function appendMessage(
   db: Database.Database,
   conversationId: string,
   role: 'user' | 'assistant',
-  content: unknown[]
+  content: unknown[],
+  meta?: { providerId: string; model: string; inputTokens: number; outputTokens: number }
 ): void {
-  db.prepare('insert into ai_messages (id, conversation_id, role, content) values (?, ?, ?, ?)').run(
+  db.prepare(
+    'insert into ai_messages (id, conversation_id, role, content, provider, model, input_tokens, output_tokens) values (?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(
     randomUUID(),
     conversationId,
     role,
-    JSON.stringify(content)
+    JSON.stringify(content),
+    meta?.providerId ?? null,
+    meta?.model ?? null,
+    meta?.inputTokens ?? null,
+    meta?.outputTokens ?? null
   );
   db.prepare("update ai_conversations set updated_at = datetime('now') where id = ?").run(conversationId);
+}
+
+export interface UsageRow {
+  providerId: string;
+  model: string;
+  displayName: string;
+  inputTokens: number;
+  outputTokens: number;
+  estimatedCostUsd: number;
+}
+
+export function getUsageSummary(db: Database.Database): UsageRow[] {
+  const rows = db
+    .prepare(
+      `select provider, model, sum(input_tokens) as input_tokens, sum(output_tokens) as output_tokens
+       from ai_messages
+       where provider is not null
+       group by provider, model`
+    )
+    .all() as Array<{ provider: string; model: string; input_tokens: number; output_tokens: number }>;
+
+  return rows.map((row) => {
+    const catalogEntry = CATALOG.find((entry) => entry.providerId === row.provider && entry.model === row.model);
+    const inputPrice = catalogEntry?.inputPricePerMTok ?? 0;
+    const outputPrice = catalogEntry?.outputPricePerMTok ?? 0;
+    const estimatedCostUsd =
+      (row.input_tokens / 1_000_000) * inputPrice + (row.output_tokens / 1_000_000) * outputPrice;
+    return {
+      providerId: row.provider,
+      model: row.model,
+      displayName: catalogEntry?.displayName ?? row.model,
+      inputTokens: row.input_tokens,
+      outputTokens: row.output_tokens,
+      estimatedCostUsd,
+    };
+  });
 }
 
 export function getMessages(db: Database.Database, conversationId: string): StoredMessage[] {

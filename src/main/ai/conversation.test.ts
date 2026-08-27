@@ -15,6 +15,10 @@ create table ai_messages (
   conversation_id text not null references ai_conversations(id) on delete cascade,
   role text not null,
   content text not null,
+  provider text,
+  model text,
+  input_tokens integer,
+  output_tokens integer,
   created_at text not null default (datetime('now'))
 );
 create index ai_messages_conversation_idx on ai_messages(conversation_id, created_at);
@@ -153,5 +157,73 @@ describe('conversation lifecycle', () => {
     const id = createConversation(db);
     setConversationTitleIfUnset(db, id, 'short question');
     expect(listConversations(db)[0].title).toBe('short question');
+  });
+});
+
+describe('usage tracking', () => {
+  it('appendMessage stores provider/model/token columns only when meta is given', async () => {
+    const { createConversation, appendMessage } = await import('./conversation');
+    const db = makeDb();
+    const id = createConversation(db);
+    appendMessage(db, id, 'user', [{ type: 'text', text: 'hi' }]);
+    appendMessage(db, id, 'assistant', [{ type: 'text', text: 'hello' }], {
+      providerId: 'anthropic',
+      model: 'claude-sonnet-5',
+      inputTokens: 12,
+      outputTokens: 34,
+    });
+    const rows = db
+      .prepare('select role, provider, model, input_tokens, output_tokens from ai_messages order by created_at')
+      .all() as Array<{ role: string; provider: string | null; model: string | null; input_tokens: number | null; output_tokens: number | null }>;
+    expect(rows[0]).toEqual({ role: 'user', provider: null, model: null, input_tokens: null, output_tokens: null });
+    expect(rows[1]).toEqual({ role: 'assistant', provider: 'anthropic', model: 'claude-sonnet-5', input_tokens: 12, output_tokens: 34 });
+  });
+
+  it('getUsageSummary sums tokens grouped by provider and model, computing estimated cost', async () => {
+    const { createConversation, appendMessage, getUsageSummary } = await import('./conversation');
+    const db = makeDb();
+    const id = createConversation(db);
+    appendMessage(db, id, 'assistant', [{ type: 'text', text: 'a' }], {
+      providerId: 'anthropic',
+      model: 'claude-haiku-4-5-20251001',
+      inputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+    });
+    appendMessage(db, id, 'assistant', [{ type: 'text', text: 'b' }], {
+      providerId: 'anthropic',
+      model: 'claude-haiku-4-5-20251001',
+      inputTokens: 500_000,
+      outputTokens: 500_000,
+    });
+    const summary = getUsageSummary(db);
+    expect(summary).toHaveLength(1);
+    expect(summary[0].providerId).toBe('anthropic');
+    expect(summary[0].model).toBe('claude-haiku-4-5-20251001');
+    expect(summary[0].inputTokens).toBe(1_500_000);
+    expect(summary[0].outputTokens).toBe(1_500_000);
+    expect(summary[0].displayName).toBe('Claude Haiku 4.5');
+    expect(summary[0].estimatedCostUsd).toBeGreaterThan(0);
+  });
+
+  it('getUsageSummary reports $0 for a provider/model not in the static catalog (e.g. Ollama)', async () => {
+    const { createConversation, appendMessage, getUsageSummary } = await import('./conversation');
+    const db = makeDb();
+    const id = createConversation(db);
+    appendMessage(db, id, 'assistant', [{ type: 'text', text: 'a' }], {
+      providerId: 'ollama',
+      model: 'llama3.1',
+      inputTokens: 10_000,
+      outputTokens: 10_000,
+    });
+    const summary = getUsageSummary(db);
+    expect(summary).toEqual([
+      { providerId: 'ollama', model: 'llama3.1', displayName: 'llama3.1', inputTokens: 10_000, outputTokens: 10_000, estimatedCostUsd: 0 },
+    ]);
+  });
+
+  it('getUsageSummary returns an empty list when nothing has ever answered', async () => {
+    const { getUsageSummary } = await import('./conversation');
+    const db = makeDb();
+    expect(getUsageSummary(db)).toEqual([]);
   });
 });

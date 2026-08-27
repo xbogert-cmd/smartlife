@@ -12,6 +12,13 @@ export interface CatalogEntry {
   supportsWebSearch: boolean;
   /** Whether this entry accepts image input (uploaded images, screenshots). */
   supportsVision: boolean;
+  /** USD per 1,000,000 input tokens. Verified against
+   *  docs.claude.com/en/docs/about-claude/pricing and
+   *  ai.google.dev/gemini-api/docs/pricing at plan time (2026-08-27) --
+   *  re-verify before adjusting, same rule as costRank. */
+  inputPricePerMTok: number;
+  /** USD per 1,000,000 output tokens. Same verification rule as above. */
+  outputPricePerMTok: number;
 }
 
 /**
@@ -35,6 +42,8 @@ export const CATALOG: CatalogEntry[] = [
     costRank: 1,
     supportsWebSearch: false,
     supportsVision: true,
+    inputPricePerMTok: 1.0,
+    outputPricePerMTok: 5.0,
   },
   {
     providerId: 'gemini',
@@ -43,6 +52,8 @@ export const CATALOG: CatalogEntry[] = [
     costRank: 1,
     supportsWebSearch: true,
     supportsVision: true,
+    inputPricePerMTok: 0.3,
+    outputPricePerMTok: 2.5,
   },
   {
     providerId: 'anthropic',
@@ -51,6 +62,10 @@ export const CATALOG: CatalogEntry[] = [
     costRank: 3,
     supportsWebSearch: true,
     supportsVision: true,
+    // $2/$10 is the standing price (the introductory rate became permanent;
+    // the previously planned 2026-09-01 increase to $3/$15 was cancelled).
+    inputPricePerMTok: 2.0,
+    outputPricePerMTok: 10.0,
   },
   {
     providerId: 'gemini',
@@ -59,6 +74,8 @@ export const CATALOG: CatalogEntry[] = [
     costRank: 3,
     supportsWebSearch: true,
     supportsVision: true,
+    inputPricePerMTok: 1.25,
+    outputPricePerMTok: 10.0,
   },
   {
     providerId: 'anthropic',
@@ -67,6 +84,8 @@ export const CATALOG: CatalogEntry[] = [
     costRank: 5,
     supportsWebSearch: true,
     supportsVision: true,
+    inputPricePerMTok: 5.0,
+    outputPricePerMTok: 25.0,
   },
 ];
 

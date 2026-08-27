@@ -26,7 +26,7 @@ const INIT_SQL = `create table settings (key text primary key, value text not nu
 const AI_PROVIDERS_SQL = `create table ai_provider_ranking (rank integer primary key, provider text not null, model text not null);`;
 const AI_CORE_SQL = `
 create table ai_conversations (id text primary key, title text, created_at text not null default (datetime('now')), updated_at text not null default (datetime('now')));
-create table ai_messages (id text primary key, conversation_id text not null references ai_conversations(id) on delete cascade, role text not null, content text not null, created_at text not null default (datetime('now')));
+create table ai_messages (id text primary key, conversation_id text not null references ai_conversations(id) on delete cascade, role text not null, content text not null, provider text, model text, input_tokens integer, output_tokens integer, created_at text not null default (datetime('now')));
 `;
 const CANVAS_SQL = `
 create table canvas_courses (
@@ -92,7 +92,14 @@ describe('handleSendMessage', () => {
     setStoredApiKey(db, 'sk-ant-test');
     const conversationId = await makeConversation(db);
     const window = fakeWindow();
-    const provider: AIProvider = { streamTurn: vi.fn().mockResolvedValue([{ type: 'text', text: 'Hi there!' }]) };
+    const provider: AIProvider = {
+      streamTurn: vi.fn().mockResolvedValue({
+        content: [{ type: 'text', text: 'Hi there!' }],
+        usage: { inputTokens: 1, outputTokens: 1 },
+        providerId: 'anthropic',
+        model: 'claude-sonnet-5',
+      }),
+    };
     await handleSendMessage(db, () => window as never, 'hello', null, conversationId, { provider });
     const rows = db.prepare('select role, content from ai_messages order by created_at').all() as Array<{
       role: string;
@@ -112,7 +119,14 @@ describe('handleSendMessage', () => {
     setStoredApiKey(db, 'sk-ant-test');
     const conversationId = await makeConversation(db);
     const window = fakeWindow();
-    const provider: AIProvider = { streamTurn: vi.fn().mockResolvedValue([{ type: 'text', text: 'ok' }]) };
+    const provider: AIProvider = {
+      streamTurn: vi.fn().mockResolvedValue({
+        content: [{ type: 'text', text: 'ok' }],
+        usage: { inputTokens: 1, outputTokens: 1 },
+        providerId: 'anthropic',
+        model: 'claude-sonnet-5',
+      }),
+    };
     await handleSendMessage(db, () => window as never, 'what is the capital of France', null, conversationId, { provider });
     expect(listConversations(db)[0].title).toBe('what is the capital of France');
     await handleSendMessage(db, () => window as never, 'and Germany', null, conversationId, { provider });
@@ -157,7 +171,12 @@ describe('handleSendMessage', () => {
     const provider: AIProvider = {
       streamTurn: vi.fn().mockImplementation(async ({ ctx }) => {
         confirmResult = await ctx.requestConfirmation('some_tool', 'some description');
-        return [{ type: 'text', text: 'done' }];
+        return {
+          content: [{ type: 'text', text: 'done' }],
+          usage: { inputTokens: 1, outputTokens: 1 },
+          providerId: 'anthropic',
+          model: 'claude-sonnet-5',
+        };
       }),
     };
     await handleSendMessage(db, () => null, 'hello', null, conversationId, { provider });
@@ -178,7 +197,12 @@ describe('handleSendMessage', () => {
     const provider: AIProvider = {
       streamTurn: vi.fn().mockImplementation(async () => {
         await gate;
-        return [{ type: 'text', text: 'done' }];
+        return {
+          content: [{ type: 'text', text: 'done' }],
+          usage: { inputTokens: 1, outputTokens: 1 },
+          providerId: 'anthropic',
+          model: 'claude-sonnet-5',
+        };
       }),
     };
 
@@ -218,7 +242,12 @@ describe('handleSendMessage', () => {
     const provider: AIProvider = {
       streamTurn: vi.fn().mockImplementation(async () => {
         await gate;
-        return [{ type: 'text', text: 'done' }];
+        return {
+          content: [{ type: 'text', text: 'done' }],
+          usage: { inputTokens: 1, outputTokens: 1 },
+          providerId: 'anthropic',
+          model: 'claude-sonnet-5',
+        };
       }),
     };
 
@@ -244,7 +273,12 @@ describe('handleSendMessage', () => {
       streamTurn: vi.fn().mockImplementation(async ({ onEvent }) => {
         onEvent({ type: 'text-delta', text: 'ok' });
         onEvent({ type: 'turn-complete' });
-        return [{ type: 'text', text: 'ok' }];
+        return {
+          content: [{ type: 'text', text: 'ok' }],
+          usage: { inputTokens: 1, outputTokens: 1 },
+          providerId: 'anthropic',
+          model: 'claude-sonnet-5',
+        };
       }),
     };
     await handleSendMessage(db, () => window as never, 'hi', null, conversationId, { provider });
@@ -255,6 +289,28 @@ describe('handleSendMessage', () => {
       expect((event.payload as { conversationId: string }).conversationId).toBe(conversationId);
     }
   });
+
+  it('persists the serving provider/model and token usage onto the assistant message row', async () => {
+    const { handleSendMessage } = await import('./chatController');
+    const db = makeDb();
+    setStoredApiKey(db, 'sk-ant-test');
+    const conversationId = await makeConversation(db);
+    const window = fakeWindow();
+    const provider: AIProvider = {
+      streamTurn: vi.fn().mockResolvedValue({
+        content: [{ type: 'text', text: 'ok' }],
+        usage: { inputTokens: 42, outputTokens: 17 },
+        providerId: 'gemini',
+        model: 'gemini-2.5-pro',
+      }),
+    };
+    await handleSendMessage(db, () => window as never, 'hi', null, conversationId, { provider });
+
+    const row = db
+      .prepare('select provider, model, input_tokens, output_tokens from ai_messages where role = ?')
+      .get('assistant') as { provider: string; model: string; input_tokens: number; output_tokens: number };
+    expect(row).toEqual({ provider: 'gemini', model: 'gemini-2.5-pro', input_tokens: 42, output_tokens: 17 });
+  });
 });
 
 describe('system prompt', () => {
@@ -263,7 +319,12 @@ describe('system prompt', () => {
     const db = makeDb();
     setStoredApiKey(db, 'sk-ant-test');
     const conversationId = await makeConversation(db);
-    const streamTurn = vi.fn().mockResolvedValue([{ type: 'text', text: 'ok' }]);
+    const streamTurn = vi.fn().mockResolvedValue({
+      content: [{ type: 'text', text: 'ok' }],
+      usage: { inputTokens: 1, outputTokens: 1 },
+      providerId: 'anthropic',
+      model: 'claude-sonnet-5',
+    });
     await handleSendMessage(db, () => fakeWindow() as never, 'hi', null, conversationId, { provider: { streamTurn } });
 
     const system = streamTurn.mock.calls[0][0].system as string;
@@ -283,7 +344,12 @@ describe('system prompt', () => {
        values (10, 1, 'Chapter 4 Homework', '["online_text_entry"]')`
     ).run();
 
-    const streamTurn = vi.fn().mockResolvedValue([{ type: 'text', text: 'ok' }]);
+    const streamTurn = vi.fn().mockResolvedValue({
+      content: [{ type: 'text', text: 'ok' }],
+      usage: { inputTokens: 1, outputTokens: 1 },
+      providerId: 'anthropic',
+      model: 'claude-sonnet-5',
+    });
     await handleSendMessage(
       db,
       () => fakeWindow() as never,
@@ -301,7 +367,12 @@ describe('system prompt', () => {
     const db = makeDb();
     setStoredApiKey(db, 'sk-ant-test');
     const conversationId = await makeConversation(db);
-    const streamTurn = vi.fn().mockResolvedValue([{ type: 'text', text: 'ok' }]);
+    const streamTurn = vi.fn().mockResolvedValue({
+      content: [{ type: 'text', text: 'ok' }],
+      usage: { inputTokens: 1, outputTokens: 1 },
+      providerId: 'anthropic',
+      model: 'claude-sonnet-5',
+    });
     await expect(
       handleSendMessage(db, () => fakeWindow() as never, 'hi', null, conversationId, { provider: { streamTurn } })
     ).resolves.toBeUndefined();
@@ -320,7 +391,12 @@ describe('attachments', () => {
     setStoredApiKey(db, 'sk-ant-test');
     const conversationId = await makeConversation(db);
     const window = fakeWindow();
-    const streamTurn = vi.fn().mockResolvedValue([{ type: 'text', text: 'ok' }]);
+    const streamTurn = vi.fn().mockResolvedValue({
+      content: [{ type: 'text', text: 'ok' }],
+      usage: { inputTokens: 1, outputTokens: 1 },
+      providerId: 'anthropic',
+      model: 'claude-sonnet-5',
+    });
     await handleSendMessage(db, () => window as never, 'summarize this', null, conversationId, {
       attachmentIds: ['attach-1'],
       provider: { streamTurn },
@@ -347,7 +423,12 @@ describe('attachments', () => {
     setStoredApiKey(db, 'sk-ant-test');
     const conversationId = await makeConversation(db);
     const window = fakeWindow();
-    const streamTurn = vi.fn().mockResolvedValue([{ type: 'text', text: 'ok' }]);
+    const streamTurn = vi.fn().mockResolvedValue({
+      content: [{ type: 'text', text: 'ok' }],
+      usage: { inputTokens: 1, outputTokens: 1 },
+      providerId: 'anthropic',
+      model: 'claude-sonnet-5',
+    });
     await handleSendMessage(db, () => window as never, 'what is this', null, conversationId, {
       attachmentIds: ['attach-1'],
       provider: { streamTurn },
@@ -367,7 +448,12 @@ describe('attachments', () => {
     const db = makeDb();
     setStoredApiKey(db, 'sk-ant-test');
     const conversationId = await makeConversation(db);
-    const streamTurn = vi.fn().mockResolvedValue([{ type: 'text', text: 'ok' }]);
+    const streamTurn = vi.fn().mockResolvedValue({
+      content: [{ type: 'text', text: 'ok' }],
+      usage: { inputTokens: 1, outputTokens: 1 },
+      providerId: 'anthropic',
+      model: 'claude-sonnet-5',
+    });
     await handleSendMessage(db, () => fakeWindow() as never, 'hi', null, conversationId, { provider: { streamTurn } });
     expect(streamTurn.mock.calls[0][0].attachments).toBeUndefined();
   });
