@@ -72,7 +72,7 @@ describe('AI chat view', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Send' }));
 
     const ai = (window as unknown as { smartlife: { ai: ReturnType<typeof mockAi> } }).smartlife.ai;
-    expect(ai.sendMessage).toHaveBeenCalledWith('hi there', null, [], 'conv-1');
+    expect(ai.sendMessage).toHaveBeenCalledWith('hi there', null, [], 'conv-1', false);
     expect(await screen.findByText('hi there')).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText('Hello there!')).toBeInTheDocument());
   });
