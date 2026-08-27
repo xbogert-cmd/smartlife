@@ -1,17 +1,20 @@
 import type { CanonicalImageBlock, ToolContext, ToolDefinition } from '../tools/types';
 
 export interface StreamEvent {
-  type: 'text-delta' | 'tool-status' | 'turn-complete' | 'provider-switched';
+  type: 'text-delta' | 'tool-status' | 'turn-complete' | 'provider-switched' | 'assistant-answered';
   text?: string;
   toolName?: string;
   toolLabel?: string;
   from?: string;
   to?: string;
   reason?: string;
-  /** Injected by chatController.ts's `send` wrapper -- never set by
-   *  providers themselves. Lets the renderer discard a stream event that
-   *  belongs to a conversation the user has since switched away from. */
   conversationId?: string;
+  /** Only set on an 'assistant-answered' event -- the provider/model that
+   *  actually served this turn, sent once the assistant message has been
+   *  persisted. Lets the renderer tag the just-completed message bubble
+   *  without re-fetching (and replacing) the whole conversation. */
+  providerId?: string;
+  model?: string;
 }
 
 export interface TurnMessage {

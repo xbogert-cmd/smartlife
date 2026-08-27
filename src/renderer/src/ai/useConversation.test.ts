@@ -402,22 +402,10 @@ describe('useConversation — stream events scoped to the active conversation', 
     });
   });
 
-  it('attaches the answeredBy caption to a message built live from stream events, by refetching history once the turn completes', async () => {
-    ai.getHistory.mockImplementation((id: string) =>
-      Promise.resolve(
-        id === 'conv-1'
-          ? [
-              { role: 'user', content: [{ type: 'text', text: 'hi' }], providerId: null, model: null },
-              {
-                role: 'assistant',
-                content: [{ type: 'text', text: 'for you' }],
-                providerId: 'anthropic',
-                model: 'claude-sonnet-5',
-              },
-            ]
-          : []
-      )
-    );
+  it('tags the just-completed assistant message with answeredBy once the assistant-answered event arrives, without touching earlier messages', async () => {
+    ai.getCatalog.mockResolvedValue([
+      { providerId: 'anthropic', model: 'claude-sonnet-5', displayName: 'Claude Sonnet 5', costRank: 3 },
+    ]);
     const { result } = renderHook(() => useConversation());
     await waitFor(() => expect(result.current.activeConversationId).toBe('conv-1'));
     const onEvent = ai.onStreamEvent.mock.calls[0][0] as (event: unknown) => void;
@@ -426,20 +414,42 @@ describe('useConversation — stream events scoped to the active conversation', 
       result.current.sendMessage('hi');
     });
 
-    onEvent({ type: 'text-delta', text: 'for you', conversationId: 'conv-1' });
+    onEvent({ type: 'text-delta', text: 'partial answer', conversationId: 'conv-1' });
     await waitFor(() => {
       const assistantMessages = result.current.messages.filter((m) => m.role === 'assistant');
       expect(assistantMessages).toHaveLength(1);
-      expect(assistantMessages[0].text).toBe('for you');
+      expect(assistantMessages[0].text).toBe('partial answer');
     });
-    // Before turn-complete, the live-built message has no answeredBy yet.
-    expect(result.current.messages.find((m) => m.role === 'assistant')?.answeredBy).toBeUndefined();
 
     onEvent({ type: 'turn-complete', conversationId: 'conv-1' });
+    onEvent({ type: 'assistant-answered', providerId: 'anthropic', model: 'claude-sonnet-5', conversationId: 'conv-1' });
 
     await waitFor(() => {
-      const assistantMessage = result.current.messages.find((m) => m.role === 'assistant');
-      expect(assistantMessage?.answeredBy).toBe('Claude Sonnet 5');
+      const assistantMessages = result.current.messages.filter((m) => m.role === 'assistant');
+      expect(assistantMessages).toHaveLength(1);
+      expect(assistantMessages[0].answeredBy).toBe('Claude Sonnet 5');
+    });
+
+    // The user's own message from sendMessage must still be present, unlike
+    // the previous (reverted) history-refetch approach which would have
+    // temporarily replaced the whole array.
+    expect(result.current.messages.some((m) => m.role === 'user' && m.text === 'hi')).toBe(true);
+  });
+
+  it('does not wipe a provider-switched notice when the turn subsequently completes', async () => {
+    const { result } = renderHook(() => useConversation());
+    await waitFor(() => expect(result.current.activeConversationId).toBe('conv-1'));
+    const onEvent = ai.onStreamEvent.mock.calls[0][0] as (event: unknown) => void;
+
+    act(() => {
+      onEvent({ type: 'provider-switched', from: 'Claude Sonnet 5', to: 'Gemini Flash', reason: 'credit balance too low', conversationId: 'conv-1' });
+      onEvent({ type: 'text-delta', text: 'answer from gemini', conversationId: 'conv-1' });
+      onEvent({ type: 'turn-complete', conversationId: 'conv-1' });
+    });
+
+    await waitFor(() => {
+      const notices = result.current.messages.filter((m) => m.kind === 'switch-notice');
+      expect(notices).toHaveLength(1);
     });
   });
 });

@@ -310,6 +310,11 @@ describe('handleSendMessage', () => {
       .prepare('select provider, model, input_tokens, output_tokens from ai_messages where role = ?')
       .get('assistant') as { provider: string; model: string; input_tokens: number; output_tokens: number };
     expect(row).toEqual({ provider: 'gemini', model: 'gemini-2.5-pro', input_tokens: 42, output_tokens: 17 });
+
+    expect(window.sent).toContainEqual({
+      channel: 'ai:stream-event',
+      payload: { type: 'assistant-answered', providerId: 'gemini', model: 'gemini-2.5-pro', conversationId },
+    });
   });
 });
 

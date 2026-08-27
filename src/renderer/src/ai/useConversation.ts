@@ -72,6 +72,7 @@ export function useConversation() {
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [catalog, setCatalog] = useState<Array<{ providerId: string; model: string; displayName: string }>>([]);
   const streamingIdRef = useRef<string | null>(null);
+  const lastAssistantMessageIdRef = useRef<string | null>(null);
 
   // Kept in sync with activeConversationId via the effect below so the
   // stream-event handler (a useEffect with an empty dep array, subscribed
@@ -186,6 +187,7 @@ export function useConversation() {
           }
           const id = `assistant-${Date.now()}-${Math.random()}`;
           streamingIdRef.current = id;
+          lastAssistantMessageIdRef.current = id;
           return [...prev, { id, role: 'assistant', text: event.text ?? '' }];
         });
       } else if (event.type === 'tool-status') {
@@ -194,25 +196,11 @@ export function useConversation() {
         setStatusLabel(null);
         streamingIdRef.current = null;
         setSending(false);
-        const completedConversationId = event.conversationId ?? activeConversationIdRef.current;
-        if (completedConversationId) {
-          window.smartlife.ai
-            .getHistory(completedConversationId)
-            .then((history) => {
-              // The user may have switched to a different conversation while
-              // this fetch was in flight -- only apply it if it's still the
-              // one actually showing.
-              if (activeConversationIdRef.current !== completedConversationId) return;
-              setMessages(
-                history.map((m, index) => ({
-                  id: `history-${index}`,
-                  role: m.role,
-                  text: extractText(m.content),
-                  answeredBy: displayNameFor(catalogRef.current, m.providerId, m.model),
-                }))
-              );
-            })
-            .catch(() => {});
+      } else if (event.type === 'assistant-answered') {
+        const displayName = displayNameFor(catalogRef.current, event.providerId ?? null, event.model ?? null);
+        const targetId = lastAssistantMessageIdRef.current;
+        if (targetId && displayName) {
+          setMessages((prev) => prev.map((m) => (m.id === targetId ? { ...m, answeredBy: displayName } : m)));
         }
       } else if (event.type === 'provider-switched') {
         // Next text-delta must start a fresh bubble, not append onto the
@@ -293,6 +281,7 @@ export function useConversation() {
     latestSwitchRequestRef.current = id;
     setActiveConversationId(id);
     streamingIdRef.current = null;
+    lastAssistantMessageIdRef.current = null;
     setStatusLabel(null);
     setSending(false);
     const history = await window.smartlife.ai.getHistory(id).catch(() => []);
@@ -315,6 +304,7 @@ export function useConversation() {
     setActiveConversationId(id);
     setMessages([]);
     streamingIdRef.current = null;
+    lastAssistantMessageIdRef.current = null;
     setStatusLabel(null);
     setSending(false);
     await refreshConversations();

@@ -21,20 +21,16 @@ type ConfirmCb = (req: { id: string; toolName: string; description: string }) =>
 function mockAi(apiKeyConfigured = true) {
   let streamCb: StreamCb | null = null;
   let confirmCb: ConfirmCb | null = null;
-  // Mirrors what main persists: turn-complete now triggers a getHistory()
-  // refetch (see useConversation.ts) to pick up the just-persisted
-  // provider/model, so this mock's history must reflect what sendMessage
-  // "sent" or that refetch would wipe the messages the test just rendered.
-  let history: Array<{ role: 'user' | 'assistant'; content: unknown }> = [];
   return {
     hasUsableProvider: vi.fn().mockResolvedValue(apiKeyConfigured),
-    getHistory: vi.fn().mockImplementation(() => Promise.resolve(history)),
-    sendMessage: vi.fn().mockImplementation((text: string) => {
-      history = [...history, { role: 'user', content: [{ type: 'text', text }] }];
+    // Only switchConversation's own use needs this to resolve sensibly --
+    // turn-complete no longer refetches history, so no conversation-tracking
+    // mock state is needed here.
+    getHistory: vi.fn().mockResolvedValue([]),
+    sendMessage: vi.fn().mockImplementation(() => {
       queueMicrotask(() => {
         streamCb?.({ type: 'text-delta', text: 'Hello ' });
         streamCb?.({ type: 'text-delta', text: 'there!' });
-        history = [...history, { role: 'assistant', content: [{ type: 'text', text: 'Hello there!' }] }];
         streamCb?.({ type: 'turn-complete' });
       });
       return Promise.resolve();

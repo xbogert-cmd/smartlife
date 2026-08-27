@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
 interface StreamEvent {
-  type: 'text-delta' | 'tool-status' | 'turn-complete' | 'provider-switched';
+  type: 'text-delta' | 'tool-status' | 'turn-complete' | 'provider-switched' | 'assistant-answered';
   text?: string;
   toolName?: string;
   toolLabel?: string;
@@ -9,6 +9,8 @@ interface StreamEvent {
   to?: string;
   reason?: string;
   conversationId?: string;
+  providerId?: string;
+  model?: string;
 }
 
 interface ConfirmRequest {

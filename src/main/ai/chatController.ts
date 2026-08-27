@@ -99,6 +99,7 @@ export async function handleSendMessage(
         inputTokens: result.usage.inputTokens,
         outputTokens: result.usage.outputTokens,
       });
+      send({ type: 'assistant-answered', providerId: result.providerId, model: result.model });
     } catch (error) {
       // Every other main-process error path (browser, sync, downloads) is
       // persisted via logError so it survives past the session that hit it --
