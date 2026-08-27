@@ -67,14 +67,24 @@ export function useConversation(view: unknown = null) {
   // Launch always starts a brand-new conversation -- old ones wait in the
   // sidebar until switched to, never auto-opened.
   useEffect(() => {
+    let cancelled = false;
     window.smartlife.ai
       .createConversation()
       .then(async (id) => {
+        // StrictMode double-invokes this effect in dev: the first
+        // invocation's cleanup runs (setting cancelled) before its own
+        // create call resolves. Without this guard both invocations would
+        // apply, leaving an orphan conversation behind every launch.
+        if (cancelled) return;
         setActiveConversationId(id);
         setMessages([]);
         await refreshConversations();
       })
       .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
   }, [refreshConversations]);
 
   // Recovers a confirmation that became pending while the dock was closed
@@ -197,11 +207,18 @@ export function useConversation(view: unknown = null) {
     [pendingConfirm]
   );
 
+  const latestSwitchRequestRef = useRef<string | null>(null);
+
   const switchConversation = useCallback(async (id: string) => {
+    latestSwitchRequestRef.current = id;
     setActiveConversationId(id);
     streamingIdRef.current = null;
     setStatusLabel(null);
     const history = await window.smartlife.ai.getHistory(id).catch(() => []);
+    // A later switchConversation call may have already superseded this one
+    // (its getHistory can resolve first) -- only apply this result if it's
+    // still the most recently requested conversation.
+    if (latestSwitchRequestRef.current !== id) return;
     setMessages(history.map((m, index) => ({ id: `history-${index}`, role: m.role, text: extractText(m.content) })));
   }, []);
 

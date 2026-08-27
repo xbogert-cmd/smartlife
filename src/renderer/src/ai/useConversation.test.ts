@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { StrictMode } from 'react';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { useConversation } from './useConversation';
 
@@ -51,6 +52,18 @@ describe('useConversation — launch always starts a new conversation', () => {
     const { result } = renderHook(() => useConversation());
     await waitFor(() => expect(result.current.conversations).toEqual([{ id: 'conv-1', title: null, updatedAt: '2026-01-01 00:00:00' }]));
   });
+
+  it('does not leave an orphan conversation when StrictMode double-invokes the mount effect', async () => {
+    ai.createConversation.mockResolvedValueOnce('conv-a').mockResolvedValueOnce('conv-b');
+    const { result } = renderHook(() => useConversation(), { wrapper: StrictMode });
+
+    await waitFor(() => expect(ai.createConversation).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(result.current.activeConversationId).toBe('conv-b'));
+    // Only the surviving (non-cancelled) effect invocation should refresh the
+    // conversation list -- the cancelled first invocation's resolution must
+    // be a no-op, otherwise it also created and surfaced an orphan.
+    expect(ai.listConversations).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('useConversation — switching conversations', () => {
@@ -67,6 +80,38 @@ describe('useConversation — switching conversations', () => {
 
     expect(result.current.activeConversationId).toBe('conv-2');
     expect(result.current.messages).toEqual([{ id: 'history-0', role: 'user', text: 'old message' }]);
+  });
+
+  it('ignores a stale getHistory response from an earlier switchConversation call that resolves late', async () => {
+    let resolveConv2: (v: Array<{ role: 'user' | 'assistant'; content: unknown }>) => void;
+    const conv2History = new Promise<Array<{ role: 'user' | 'assistant'; content: unknown }>>((resolve) => {
+      resolveConv2 = resolve;
+    });
+    ai.getHistory.mockImplementation((id: string) => {
+      if (id === 'conv-2') return conv2History;
+      if (id === 'conv-3') return Promise.resolve([{ role: 'user', content: [{ type: 'text', text: 'fresh message' }] }]);
+      return Promise.resolve([]);
+    });
+    const { result } = renderHook(() => useConversation());
+    await waitFor(() => expect(result.current.activeConversationId).toBe('conv-1'));
+
+    let switch2Done: Promise<void>;
+    act(() => {
+      switch2Done = result.current.switchConversation('conv-2');
+    });
+    await act(async () => {
+      await result.current.switchConversation('conv-3');
+    });
+
+    // conv-3's getHistory already resolved and won; now let conv-2's late
+    // response land and confirm it does not stomp conv-3's messages.
+    await act(async () => {
+      resolveConv2([{ role: 'user', content: [{ type: 'text', text: 'old message' }] }]);
+      await switch2Done;
+    });
+
+    expect(result.current.activeConversationId).toBe('conv-3');
+    expect(result.current.messages).toEqual([{ id: 'history-0', role: 'user', text: 'fresh message' }]);
   });
 
   it('startNewConversation creates and switches to a fresh, empty conversation', async () => {
