@@ -73,6 +73,20 @@ interface RecordingSession {
   chunks: Float32Array[];
 }
 
+/** Disconnects the audio graph, stops the mic tracks, and closes the
+ *  AudioContext. Shared by stopRecording (which goes on to transcribe) and
+ *  cancelRecording/unmount (which don't). Returns the sample rate since
+ *  stopRecording needs it after the context is closed. */
+async function teardownSession(session: RecordingSession): Promise<number> {
+  session.processor.disconnect();
+  session.source.disconnect();
+  session.silentGain.disconnect();
+  session.stream.getTracks().forEach((track) => track.stop());
+  const sampleRate = session.audioContext.sampleRate;
+  await session.audioContext.close();
+  return sampleRate;
+}
+
 export function useVoice({ messages, sending, sendMessage }: UseVoiceParams) {
   const [voiceModeOn, setVoiceModeOn] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
@@ -101,20 +115,9 @@ export function useVoice({ messages, sending, sendMessage }: UseVoiceParams) {
   useEffect(() => {
     return () => {
       const session = sessionRef.current;
-      if (session) {
-        session.processor.disconnect();
-        session.source.disconnect();
-        session.silentGain.disconnect();
-        session.stream.getTracks().forEach((track) => track.stop());
-        void session.audioContext.close();
-      }
+      if (session) void teardownSession(session);
     };
   }, []);
-
-  const toggleVoiceMode = useCallback(() => {
-    if (voiceModeOn) window.speechSynthesis.cancel();
-    setVoiceModeOn((prev) => !prev);
-  }, [voiceModeOn]);
 
   const startRecording = useCallback(async () => {
     if (isStartingRef.current) return;
@@ -152,12 +155,7 @@ export function useVoice({ messages, sending, sendMessage }: UseVoiceParams) {
     setIsRecording(false);
     if (!session) return;
 
-    session.processor.disconnect();
-    session.source.disconnect();
-    session.silentGain.disconnect();
-    session.stream.getTracks().forEach((track) => track.stop());
-    const sampleRate = session.audioContext.sampleRate;
-    await session.audioContext.close();
+    const sampleRate = await teardownSession(session);
 
     const totalLength = session.chunks.reduce((sum, chunk) => sum + chunk.length, 0);
     const merged = new Float32Array(totalLength);
@@ -186,6 +184,24 @@ export function useVoice({ messages, sending, sendMessage }: UseVoiceParams) {
       await startRecording();
     }
   }, [isRecording, startRecording, stopRecording]);
+
+  // Tears down an in-progress recording without transcribing or sending --
+  // used when voice mode is turned off mid-recording, where the user's
+  // intent is "stop listening", not "send what you have so far".
+  const cancelRecording = useCallback(async () => {
+    const session = sessionRef.current;
+    sessionRef.current = null;
+    setIsRecording(false);
+    if (session) await teardownSession(session);
+  }, []);
+
+  const toggleVoiceMode = useCallback(() => {
+    if (voiceModeOn) {
+      window.speechSynthesis.cancel();
+      void cancelRecording();
+    }
+    setVoiceModeOn((prev) => !prev);
+  }, [voiceModeOn, cancelRecording]);
 
   return { voiceModeOn, toggleVoiceMode, isRecording, toggleRecording, voiceError };
 }

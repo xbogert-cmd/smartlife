@@ -88,6 +88,26 @@ describe('useVoice — voice mode toggle', () => {
     act(() => result.current.toggleVoiceMode());
     expect(cancel).toHaveBeenCalled();
   });
+
+  it('cancels an in-progress recording (without transcribing or sending) when voice mode is turned off', async () => {
+    const sendMessage = vi.fn();
+    const { result } = renderHook(() => useVoice({ messages: [], sending: false, sendMessage }));
+
+    act(() => result.current.toggleVoiceMode()); // voice mode on
+    await act(async () => {
+      await result.current.toggleRecording(); // start recording
+    });
+    expect(result.current.isRecording).toBe(true);
+
+    await act(async () => {
+      result.current.toggleVoiceMode(); // voice mode off, mid-recording
+    });
+
+    expect(result.current.isRecording).toBe(false);
+    expect(fakeTrack.stop).toHaveBeenCalled();
+    expect(ai.transcribeAudio).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
 });
 
 describe('useVoice — recording and transcription', () => {
