@@ -8,6 +8,10 @@ export interface StreamEvent {
   from?: string;
   to?: string;
   reason?: string;
+  /** Injected by chatController.ts's `send` wrapper -- never set by
+   *  providers themselves. Lets the renderer discard a stream event that
+   *  belongs to a conversation the user has since switched away from. */
+  conversationId?: string;
 }
 
 export interface TurnMessage {

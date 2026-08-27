@@ -10,8 +10,12 @@ export interface ConversationSidebarProps {
   onDelete: (id: string) => void;
 }
 
-function relativeTime(iso: string): string {
-  const diffMs = Date.now() - new Date(iso).getTime();
+export function relativeTime(iso: string): string {
+  // SQLite's datetime('now') returns UTC in a space-separated, non-ISO
+  // format ("2026-01-01 00:00:00"). Parsed directly, V8 reads that as LOCAL
+  // time, silently shifting every relative time by the machine's UTC offset.
+  // Converting to a real ISO string with an explicit Z fixes that.
+  const diffMs = Date.now() - new Date(iso.replace(' ', 'T') + 'Z').getTime();
   const minutes = Math.floor(diffMs / 60000);
   if (minutes < 1) return 'just now';
   if (minutes < 60) return `${minutes}m ago`;

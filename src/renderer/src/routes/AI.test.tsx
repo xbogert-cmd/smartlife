@@ -3,11 +3,14 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { AI } from './AI';
+import { ConversationProvider } from '../ai/ConversationProvider';
 
 function renderAI(): ReturnType<typeof render> {
   return render(
     <MemoryRouter>
-      <AI />
+      <ConversationProvider>
+        <AI />
+      </ConversationProvider>
     </MemoryRouter>
   );
 }
@@ -45,6 +48,10 @@ function mockAi(apiKeyConfigured = true) {
     getPendingConfirmation: vi.fn().mockResolvedValue(null),
     onConfirmResolved: vi.fn((_cb: (id: string) => void) => () => {}),
     pickAttachment: vi.fn().mockResolvedValue(null),
+    createConversation: vi.fn().mockResolvedValue('conv-1'),
+    listConversations: vi.fn().mockResolvedValue([]),
+    renameConversation: vi.fn().mockResolvedValue(undefined),
+    deleteConversation: vi.fn().mockResolvedValue(undefined),
     triggerConfirm: (req: { id: string; toolName: string; description: string }) => confirmCb?.(req),
   };
 }
@@ -61,7 +68,7 @@ describe('AI chat view', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Send' }));
 
     const ai = (window as unknown as { smartlife: { ai: ReturnType<typeof mockAi> } }).smartlife.ai;
-    expect(ai.sendMessage).toHaveBeenCalledWith('hi there', null, []);
+    expect(ai.sendMessage).toHaveBeenCalledWith('hi there', null, [], 'conv-1');
     expect(await screen.findByText('hi there')).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText('Hello there!')).toBeInTheDocument());
   });

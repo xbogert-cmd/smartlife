@@ -35,7 +35,17 @@ function extractText(content: unknown): string {
     .join('');
 }
 
-export function useConversation(view: unknown = null) {
+/**
+ * Conversation state and every action on it. Deliberately has NO `view`
+ * parameter -- unlike the pre-Phase-8c version, `view` is no longer baked in
+ * at hook-construction time. This hook is meant to be called exactly ONCE
+ * per app session (see ConversationProvider.tsx) and shared between every
+ * consumer that wants to talk to the assistant (the AIDock, the /ai route);
+ * those consumers can be looking at completely different parts of the app
+ * (or none at all) at the moment they send a message, so `view` is supplied
+ * per-call by sendMessage() instead.
+ */
+export function useConversation() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [statusLabel, setStatusLabel] = useState<string | null>(null);
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
@@ -52,6 +62,16 @@ export function useConversation(view: unknown = null) {
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const streamingIdRef = useRef<string | null>(null);
 
+  // Kept in sync with activeConversationId via the effect below so the
+  // stream-event handler (a useEffect with an empty dep array, subscribed
+  // once) can read the CURRENT active conversation instead of whatever it
+  // was at mount time -- a plain closure over the state variable would stay
+  // stuck at its initial value (null) forever.
+  const activeConversationIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    activeConversationIdRef.current = activeConversationId;
+  }, [activeConversationId]);
+
   useEffect(() => {
     window.smartlife.ai
       .hasUsableProvider()
@@ -65,7 +85,9 @@ export function useConversation(view: unknown = null) {
   }, []);
 
   // Launch always starts a brand-new conversation -- old ones wait in the
-  // sidebar until switched to, never auto-opened.
+  // sidebar until switched to, never auto-opened. This hook is meant to run
+  // exactly once per app session (see the module doc comment above), so
+  // "launch" here really does mean once, not once per mount.
   useEffect(() => {
     let cancelled = false;
     window.smartlife.ai
@@ -118,6 +140,17 @@ export function useConversation(view: unknown = null) {
 
   useEffect(() => {
     const unsubscribeStream = window.smartlife.ai.onStreamEvent((event) => {
+      // main tags every event with the conversation it belongs to
+      // (chatController.ts's `send` wrapper). A conversation-tagged event for
+      // a conversation that isn't the one currently displayed is discarded --
+      // this is what stops a still-streaming reply from a conversation the
+      // user switched away from bleeding into whatever they switched to. An
+      // event with no conversationId at all (older callers, or a test mock
+      // that doesn't set one) is applied unconditionally, same as before this
+      // guard existed.
+      if (event.conversationId !== undefined && event.conversationId !== activeConversationIdRef.current) {
+        return;
+      }
       if (event.type === 'text-delta') {
         setStatusLabel(null);
         setMessages((prev) => {
@@ -176,7 +209,7 @@ export function useConversation(view: unknown = null) {
   }, []);
 
   const sendMessage = useCallback(
-    (text: string) => {
+    (text: string, view: unknown = null) => {
       if (!activeConversationId) return;
       const id = `user-${Date.now()}-${Math.random()}`;
       setMessages((prev) => [...prev, { id, role: 'user', text }]);
@@ -195,7 +228,7 @@ export function useConversation(view: unknown = null) {
           ]);
         });
     },
-    [view, attachments, activeConversationId, refreshConversations]
+    [attachments, activeConversationId, refreshConversations]
   );
 
   const respondToConfirm = useCallback(

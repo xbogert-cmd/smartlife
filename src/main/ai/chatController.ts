@@ -33,7 +33,8 @@ export async function handleSendMessage(
   options: { attachmentIds?: string[]; provider?: AIProvider } = {}
 ): Promise<void> {
   const { attachmentIds = [], provider = getProvider(db) } = options;
-  const send = (event: StreamEvent): void => getWindow()?.webContents.send('ai:stream-event', event);
+  const send = (event: StreamEvent): void =>
+    getWindow()?.webContents.send('ai:stream-event', { ...event, conversationId });
 
   if (conversationsInFlight.has(conversationId)) {
     send({ type: 'text-delta', text: 'Still working on the last message — try again in a moment.' });

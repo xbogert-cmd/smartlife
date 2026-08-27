@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { ConversationSidebar } from './ConversationSidebar';
+import { ConversationSidebar, relativeTime } from './ConversationSidebar';
 
 const conversations = [
   { id: 'conv-1', title: 'Homework help', updatedAt: '2026-01-01 00:00:00' },
@@ -92,5 +92,15 @@ describe('ConversationSidebar', () => {
     await userEvent.clear(input);
     await userEvent.type(input, 'New Title{Enter}');
     expect(onRename).toHaveBeenCalledWith('conv-1', 'New Title');
+  });
+
+  it('parses SQLite UTC timestamps correctly regardless of the local machine timezone', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-01T12:00:00.000Z'));
+    // 90 minutes before "now" in UTC, formatted the way SQLite's datetime('now') would (space-separated, no Z).
+    // Parsed naively (as local time by V8) this would shift by the machine's UTC offset and land on a
+    // different bucket than "1h ago" on most timezones -- the fix makes it timezone-independent.
+    expect(relativeTime('2026-01-01 10:30:00')).toBe('1h ago');
+    vi.useRealTimers();
   });
 });

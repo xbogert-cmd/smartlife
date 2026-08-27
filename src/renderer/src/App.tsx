@@ -13,6 +13,7 @@ import { Calendar } from './routes/Calendar';
 import { Browser } from './routes/Browser';
 import { ComingSoon } from './routes/ComingSoon';
 import { AIDock } from './ai/AIDock';
+import { ConversationProvider } from './ai/ConversationProvider';
 import { usePendingConfirmationBadge } from './ai/usePendingConfirmationBadge';
 import { CommandPalette } from './command-palette/CommandPalette';
 import { DownloadPrompt } from './browser/DownloadPrompt';
@@ -101,7 +102,9 @@ export function App() {
   return (
     <ThemeProvider>
       <MemoryRouter>
-        <Shell />
+        <ConversationProvider>
+          <Shell />
+        </ConversationProvider>
       </MemoryRouter>
     </ThemeProvider>
   );

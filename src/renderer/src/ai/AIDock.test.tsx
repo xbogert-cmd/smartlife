@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { AIDock } from './AIDock';
+import { ConversationProvider } from './ConversationProvider';
 
 const suspend = vi.fn().mockResolvedValue(undefined);
 const resume = vi.fn().mockResolvedValue(undefined);
@@ -35,7 +36,9 @@ describe('AIDock', () => {
   it('renders as a complementary region, not a modal dialog', () => {
     render(
       <MemoryRouter>
-        <AIDock onClose={() => {}} />
+        <ConversationProvider>
+          <AIDock onClose={() => {}} />
+        </ConversationProvider>
       </MemoryRouter>
     );
     expect(screen.getByRole('complementary', { name: /assistant/i })).toBeTruthy();
@@ -47,7 +50,9 @@ describe('AIDock', () => {
     // blank the very page the user is asking about.
     render(
       <MemoryRouter>
-        <AIDock onClose={() => {}} />
+        <ConversationProvider>
+          <AIDock onClose={() => {}} />
+        </ConversationProvider>
       </MemoryRouter>
     );
     await Promise.resolve();
@@ -57,7 +62,9 @@ describe('AIDock', () => {
   it('has no full-screen backdrop that would swallow clicks on the page', () => {
     const { container } = render(
       <MemoryRouter>
-        <AIDock onClose={() => {}} />
+        <ConversationProvider>
+          <AIDock onClose={() => {}} />
+        </ConversationProvider>
       </MemoryRouter>
     );
     const fixedFullScreen = Array.from(container.querySelectorAll('*')).filter((element) => {
@@ -70,7 +77,9 @@ describe('AIDock', () => {
   it('toggling the sidebar button reveals the conversation list nav', async () => {
     render(
       <MemoryRouter>
-        <AIDock onClose={() => {}} />
+        <ConversationProvider>
+          <AIDock onClose={() => {}} />
+        </ConversationProvider>
       </MemoryRouter>
     );
     expect(screen.queryByRole('navigation', { name: /conversations/i })).toBeNull();

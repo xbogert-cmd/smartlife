@@ -1,9 +1,9 @@
 import { useState, type FormEvent } from 'react';
-import { useConversation } from '../ai/useConversation';
+import { useConversationContext } from '../ai/ConversationProvider';
 import { ChatPanel } from '../ai/ChatPanel';
 
 export function AI() {
-  const conversation = useConversation();
+  const conversation = useConversationContext();
   const [input, setInput] = useState('');
 
   function handleSubmit(event: FormEvent): void {

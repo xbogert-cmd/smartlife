@@ -292,6 +292,46 @@ describe('useConversation — provider-switched stream event', () => {
   });
 });
 
+describe('useConversation — stream events scoped to the active conversation', () => {
+  it('ignores a text-delta event tagged for a different conversation', async () => {
+    const { result } = renderHook(() => useConversation());
+    await waitFor(() => expect(result.current.activeConversationId).toBe('conv-1'));
+    const onEvent = ai.onStreamEvent.mock.calls[0][0] as (event: unknown) => void;
+
+    onEvent({ type: 'text-delta', text: 'not for you', conversationId: 'some-other-conversation' });
+
+    expect(result.current.messages).toEqual([]);
+  });
+
+  it('applies a text-delta event tagged for the active conversation', async () => {
+    const { result } = renderHook(() => useConversation());
+    await waitFor(() => expect(result.current.activeConversationId).toBe('conv-1'));
+    const onEvent = ai.onStreamEvent.mock.calls[0][0] as (event: unknown) => void;
+
+    onEvent({ type: 'text-delta', text: 'for you', conversationId: 'conv-1' });
+
+    await waitFor(() => {
+      const assistantMessages = result.current.messages.filter((m) => m.role === 'assistant');
+      expect(assistantMessages).toHaveLength(1);
+      expect(assistantMessages[0].text).toBe('for you');
+    });
+  });
+
+  it('applies an event with no conversationId at all (backward compatible)', async () => {
+    const { result } = renderHook(() => useConversation());
+    await waitFor(() => expect(result.current.activeConversationId).toBe('conv-1'));
+    const onEvent = ai.onStreamEvent.mock.calls[0][0] as (event: unknown) => void;
+
+    onEvent({ type: 'text-delta', text: 'untagged' });
+
+    await waitFor(() => {
+      const assistantMessages = result.current.messages.filter((m) => m.role === 'assistant');
+      expect(assistantMessages).toHaveLength(1);
+      expect(assistantMessages[0].text).toBe('untagged');
+    });
+  });
+});
+
 describe('useConversation — attachments', () => {
   it('addAttachment appends a successful pick result to attachments', async () => {
     ai.pickAttachment.mockResolvedValue({ ok: true, id: 'attach-1', name: 'notes.txt', kind: 'text' });

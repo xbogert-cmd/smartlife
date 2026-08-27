@@ -8,6 +8,7 @@ interface StreamEvent {
   from?: string;
   to?: string;
   reason?: string;
+  conversationId?: string;
 }
 
 interface ConfirmRequest {

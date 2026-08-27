@@ -233,6 +233,28 @@ describe('handleSendMessage', () => {
     expect(provider.streamTurn).toHaveBeenCalledTimes(2);
     expect(window.sent.some((s) => JSON.stringify(s.payload).includes('Still working on the last message'))).toBe(false);
   });
+
+  it('tags every emitted stream event with the conversation id', async () => {
+    const { handleSendMessage } = await import('./chatController');
+    const db = makeDb();
+    setStoredApiKey(db, 'sk-ant-test');
+    const conversationId = await makeConversation(db);
+    const window = fakeWindow();
+    const provider: AIProvider = {
+      streamTurn: vi.fn().mockImplementation(async ({ onEvent }) => {
+        onEvent({ type: 'text-delta', text: 'ok' });
+        onEvent({ type: 'turn-complete' });
+        return [{ type: 'text', text: 'ok' }];
+      }),
+    };
+    await handleSendMessage(db, () => window as never, 'hi', null, conversationId, { provider });
+
+    const streamEvents = window.sent.filter((s) => s.channel === 'ai:stream-event');
+    expect(streamEvents.length).toBeGreaterThan(0);
+    for (const event of streamEvents) {
+      expect((event.payload as { conversationId: string }).conversationId).toBe(conversationId);
+    }
+  });
 });
 
 describe('system prompt', () => {

@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { useConversation } from './useConversation';
+import { useConversationContext } from './ConversationProvider';
 import { useViewContext } from './useViewContext';
 import { ChatPanel } from './ChatPanel';
 import { ConversationSidebar } from './ConversationSidebar';
@@ -14,14 +14,14 @@ import { ConversationSidebar } from './ConversationSidebar';
  */
 export function AIDock({ onClose }: { onClose: () => void }): React.JSX.Element {
   const view = useViewContext();
-  const conversation = useConversation(view);
+  const conversation = useConversationContext();
   const [input, setInput] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   function handleSubmit(event: FormEvent): void {
     event.preventDefault();
     if (!input.trim() || conversation.sending) return;
-    conversation.sendMessage(input.trim());
+    conversation.sendMessage(input.trim(), view);
     setInput('');
   }
 
