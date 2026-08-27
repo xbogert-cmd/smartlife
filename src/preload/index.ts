@@ -214,6 +214,8 @@ const smartlife = {
       ipcRenderer.invoke('ai:retry-provider-entry', providerId, model),
     hasUsableProvider: (): Promise<boolean> => ipcRenderer.invoke('ai:has-usable-provider'),
     pickAttachment: (): Promise<PickAttachmentResult | null> => ipcRenderer.invoke('ai:pick-attachment'),
+    transcribeAudio: (data: string, mimeType: string): Promise<{ ok: true; text: string } | { ok: false; reason: string }> =>
+      ipcRenderer.invoke('ai:transcribe-audio', data, mimeType),
     listConversations: (): Promise<ConversationSummary[]> => ipcRenderer.invoke('ai:list-conversations'),
     createConversation: (): Promise<string> => ipcRenderer.invoke('ai:create-conversation'),
     renameConversation: (id: string, title: string): Promise<void> =>

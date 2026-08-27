@@ -27,6 +27,7 @@ beforeEach(() => {
       setApiKey: vi.fn().mockResolvedValue(undefined),
       hasUsableProvider: vi.fn().mockResolvedValue(false),
       pickAttachment: vi.fn().mockResolvedValue(null),
+      transcribeAudio: vi.fn().mockResolvedValue({ ok: false, reason: 'not configured' }),
       createConversation: vi.fn().mockResolvedValue('conv-1'),
       listConversations: vi.fn().mockResolvedValue([]),
       renameConversation: vi.fn().mockResolvedValue(undefined),

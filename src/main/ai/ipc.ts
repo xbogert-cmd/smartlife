@@ -15,6 +15,7 @@ import { listOllamaModels } from './providers/ollama';
 import type { ProviderId } from './providers/types';
 import { getActiveCapabilities, hasUsableProvider, resetProviderCache, retryProviderEntry } from './router';
 import { pickAttachment } from './attachments/pickAttachment';
+import { transcribeAudio } from './voice/transcribe';
 
 export function registerAiIpcHandlers(db: Database.Database, getWindow: () => BrowserWindow | null): void {
   // Published so canvas_open_assignment can move the app to /browser, the
@@ -105,4 +106,5 @@ export function registerAiIpcHandlers(db: Database.Database, getWindow: () => Br
   ipcMain.handle('ai:has-usable-provider', () => hasUsableProvider(db));
 
   ipcMain.handle('ai:pick-attachment', () => pickAttachment(getWindow(), getActiveCapabilities(db).supportsVision));
+  ipcMain.handle('ai:transcribe-audio', (_event, data: string, mimeType: string) => transcribeAudio(db, data, mimeType));
 }

@@ -27,6 +27,7 @@ vi.mock('./conversation', async () => {
   const actual = await vi.importActual<typeof import('./conversation')>('./conversation');
   return { ...actual, getUsageSummary: vi.fn() };
 });
+vi.mock('./voice/transcribe', () => ({ transcribeAudio: vi.fn() }));
 
 function makeDb(): Database.Database {
   const db = new Database(':memory:');
@@ -196,5 +197,16 @@ describe('ai:get-usage-summary', () => {
     expect(result).toEqual([
       { providerId: 'anthropic', model: 'claude-sonnet-5', displayName: 'Claude Sonnet 5', inputTokens: 10, outputTokens: 5, estimatedCostUsd: 0.001 },
     ]);
+  });
+});
+
+describe('ai:transcribe-audio', () => {
+  it('delegates to transcribeAudio and returns its result', async () => {
+    const { transcribeAudio } = await import('./voice/transcribe');
+    vi.mocked(transcribeAudio).mockResolvedValue({ ok: true, text: 'hello' });
+    const { call } = await setup();
+    const result = await call('ai:transcribe-audio', 'base64data', 'audio/wav');
+    expect(result).toEqual({ ok: true, text: 'hello' });
+    expect(transcribeAudio).toHaveBeenCalledWith(expect.anything(), 'base64data', 'audio/wav');
   });
 });
