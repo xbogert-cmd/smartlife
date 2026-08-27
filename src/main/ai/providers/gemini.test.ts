@@ -8,7 +8,13 @@ vi.mock('@google/genai', async (importOriginal) => {
   return { ...actual, GoogleGenAI: vi.fn() };
 });
 
-function fakeStream(chunks: Array<{ text?: string; functionCalls?: Array<{ name: string; args: Record<string, unknown> }> }>) {
+function fakeStream(
+  chunks: Array<{
+    text?: string;
+    functionCalls?: Array<{ name: string; args: Record<string, unknown> }>;
+    usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
+  }>
+) {
   return (async function* () {
     for (const chunk of chunks) yield chunk;
   })();
@@ -88,7 +94,7 @@ describe('createGeminiProvider — streamTurn tool-calling loop', () => {
     const onEvent = vi.fn();
     const result = await provider.streamTurn({ system: 's', history: [], userText: 'hi', tools: [], ctx: fakeCtx(), onEvent });
 
-    expect(result).toEqual([{ type: 'text', text: 'Hello!' }]);
+    expect(result.content).toEqual([{ type: 'text', text: 'Hello!' }]);
     expect(onEvent).toHaveBeenCalledWith({ type: 'text-delta', text: 'Hel' });
     expect(onEvent).toHaveBeenCalledWith({ type: 'text-delta', text: 'lo!' });
     expect(onEvent).toHaveBeenCalledWith({ type: 'turn-complete' });
@@ -114,7 +120,7 @@ describe('createGeminiProvider — streamTurn tool-calling loop', () => {
     const onEvent = vi.fn();
     const result = await provider.streamTurn({ system: 's', history: [], userText: 'weather?', tools: [tool], ctx: fakeCtx(), onEvent });
 
-    expect(result).toEqual([{ type: 'text', text: 'It is sunny.' }]);
+    expect(result.content).toEqual([{ type: 'text', text: 'It is sunny.' }]);
     expect(sendMessageStream).toHaveBeenCalledTimes(2);
     expect(onEvent).toHaveBeenCalledWith({ type: 'tool-status', toolName: 'get_weather', toolLabel: 'Get weather' });
     // The second call's message must carry the tool's real result back as a functionResponse Part.
@@ -145,8 +151,49 @@ describe('createGeminiProvider — streamTurn tool-calling loop', () => {
     // Never crashes or hangs -- terminates at the cap and returns whatever
     // text existed at that point (empty here, since every round was a
     // function call with no text).
-    expect(result).toEqual([{ type: 'text', text: '' }]);
+    expect(result.content).toEqual([{ type: 'text', text: '' }]);
     expect(sendMessageStream).toHaveBeenCalledTimes(20);
+  });
+
+  it('reports usage summed across every round of a multi-round function-calling turn', async () => {
+    const tool: import('../tools/types').ToolDefinition = {
+      name: 'get_weather',
+      tier: 'READ',
+      label: 'Get weather',
+      schema: { name: 'get_weather', description: 'd', input_schema: { type: 'object', properties: {} } },
+      run: async () => 'Sunny, 72F',
+    };
+    const sendMessageStream = vi
+      .fn()
+      .mockResolvedValueOnce(
+        fakeStream([
+          { functionCalls: [{ name: 'get_weather', args: { city: 'Tokyo' } }] },
+          { usageMetadata: { promptTokenCount: 80, candidatesTokenCount: 10 } },
+        ])
+      )
+      .mockResolvedValueOnce(
+        fakeStream([
+          { text: 'It is sunny.' },
+          { usageMetadata: { promptTokenCount: 95, candidatesTokenCount: 12 } },
+        ])
+      );
+    const create = vi.fn().mockReturnValue({ sendMessageStream });
+    vi.mocked(GoogleGenAI).mockReturnValue({ chats: { create } } as never);
+
+    const provider = createGeminiProvider('test-key', 'gemini-2.5-flash');
+    const result = await provider.streamTurn({
+      system: 's',
+      history: [],
+      userText: 'weather?',
+      tools: [tool],
+      ctx: fakeCtx(),
+      onEvent: vi.fn(),
+    });
+
+    expect(result.content).toEqual([{ type: 'text', text: 'It is sunny.' }]);
+    expect(result.usage).toEqual({ inputTokens: 175, outputTokens: 22 });
+    expect(result.providerId).toBe('gemini');
+    expect(result.model).toBe('gemini-2.5-flash');
   });
 });
 
@@ -268,7 +315,7 @@ describe('screenshot round-trip', () => {
       onEvent: vi.fn(),
     });
 
-    expect(result).toEqual([{ type: 'text', text: 'I can see the page now.' }]);
+    expect(result.content).toEqual([{ type: 'text', text: 'I can see the page now.' }]);
     expect(sendMessageStream.mock.calls[1][0].message).toEqual([
       { functionResponse: { name: 'browser_screenshot', response: { output: 'Screenshot captured.' } } },
       { inlineData: { mimeType: 'image/png', data: 'xyz' } },

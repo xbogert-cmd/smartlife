@@ -8,6 +8,7 @@ import {
   type CanonicalTextBlock,
   type StreamEvent,
   type TurnMessage,
+  type TurnResult,
 } from './types';
 
 export function toFunctionDeclarations(tools: ToolDefinition[], visionCapable: boolean): FunctionDeclaration[] {
@@ -89,6 +90,8 @@ export function createGeminiProvider(apiKey: string, model: string): AIProvider 
       });
 
       let finalText = '';
+      let totalInputTokens = 0;
+      let totalOutputTokens = 0;
       let nextMessage: Part[] | string =
         attachments && attachments.length > 0 ? [{ text: userText }, ...attachmentsToParts(attachments)] : userText;
       // Gemini's tool loop is manual, unlike Anthropic's toolRunner -- each
@@ -101,6 +104,8 @@ export function createGeminiProvider(apiKey: string, model: string): AIProvider 
         for (let round = 0; round < MAX_ROUNDS; round++) {
           const stream = await chat.sendMessageStream({ message: nextMessage });
           let roundText = '';
+          let roundInputTokens = 0;
+          let roundOutputTokens = 0;
           const functionCalls: Array<{ name: string; args: Record<string, unknown> }> = [];
 
           for await (const chunk of stream) {
@@ -111,9 +116,15 @@ export function createGeminiProvider(apiKey: string, model: string): AIProvider 
             for (const call of chunk.functionCalls ?? []) {
               if (call.name) functionCalls.push({ name: call.name, args: call.args ?? {} });
             }
+            if (chunk.usageMetadata) {
+              roundInputTokens = chunk.usageMetadata.promptTokenCount ?? 0;
+              roundOutputTokens = chunk.usageMetadata.candidatesTokenCount ?? 0;
+            }
           }
 
           finalText = roundText;
+          totalInputTokens += roundInputTokens;
+          totalOutputTokens += roundOutputTokens;
 
           if (functionCalls.length === 0) break;
 
@@ -143,7 +154,12 @@ export function createGeminiProvider(apiKey: string, model: string): AIProvider 
       }
 
       onEvent({ type: 'turn-complete' } satisfies StreamEvent);
-      return [{ type: 'text', text: finalText }] satisfies CanonicalTextBlock[];
+      return {
+        content: [{ type: 'text', text: finalText }],
+        usage: { inputTokens: totalInputTokens, outputTokens: totalOutputTokens },
+        providerId: 'gemini',
+        model,
+      } satisfies TurnResult;
     },
   };
 }
