@@ -3,7 +3,7 @@ import type Database from 'better-sqlite3';
 import { setStoredApiKey, hasStoredApiKey } from './apiKey';
 import { getAiMode, setAiMode } from './mode';
 import type { AiMode } from './permissions';
-import { getMessages, createConversation, listConversations, renameConversation, deleteConversation } from './conversation';
+import { getMessages, createConversation, listConversations, renameConversation, deleteConversation, getUsageSummary } from './conversation';
 import { getPendingConfirmation, resolveConfirmation, setConfirmationBroadcaster } from './confirmations';
 import { handleSendMessage } from './chatController';
 import type { ViewContext } from './viewContext';
@@ -44,7 +44,12 @@ export function registerAiIpcHandlers(db: Database.Database, getWindow: () => Br
   });
   ipcMain.handle('ai:get-pending-confirmation', () => getPendingConfirmation());
   ipcMain.handle('ai:get-history', (_event, conversationId: string) => {
-    return getMessages(db, conversationId).map((m) => ({ role: m.role, content: JSON.parse(m.content) }));
+    return getMessages(db, conversationId).map((m) => ({
+      role: m.role,
+      content: JSON.parse(m.content),
+      providerId: m.providerId,
+      model: m.model,
+    }));
   });
 
   ipcMain.handle('ai:list-conversations', () => listConversations(db));
@@ -55,6 +60,7 @@ export function registerAiIpcHandlers(db: Database.Database, getWindow: () => Br
   ipcMain.handle('ai:delete-conversation', (_event, id: string) => {
     deleteConversation(db, id);
   });
+  ipcMain.handle('ai:get-usage-summary', () => getUsageSummary(db));
 
   ipcMain.handle('ai:get-catalog', () => CATALOG);
 

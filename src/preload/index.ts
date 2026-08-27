@@ -20,6 +20,8 @@ interface ConfirmRequest {
 interface AiMessage {
   role: 'user' | 'assistant';
   content: unknown;
+  providerId: string | null;
+  model: string | null;
 }
 
 interface CatalogEntry {
@@ -135,6 +137,15 @@ interface ConversationSummary {
   updatedAt: string;
 }
 
+interface UsageRow {
+  providerId: string;
+  model: string;
+  displayName: string;
+  inputTokens: number;
+  outputTokens: number;
+  estimatedCostUsd: number;
+}
+
 const smartlife = {
   theme: {
     get: (): Promise<'light' | 'dark' | 'system'> => ipcRenderer.invoke('theme:get'),
@@ -206,6 +217,7 @@ const smartlife = {
     renameConversation: (id: string, title: string): Promise<void> =>
       ipcRenderer.invoke('ai:rename-conversation', id, title),
     deleteConversation: (id: string): Promise<void> => ipcRenderer.invoke('ai:delete-conversation', id),
+    getUsageSummary: (): Promise<UsageRow[]> => ipcRenderer.invoke('ai:get-usage-summary'),
   },
   canvas: {
     getStatus: (): Promise<CanvasSyncStatus> => ipcRenderer.invoke('canvas:get-status'),

@@ -7,6 +7,8 @@ export interface StoredMessage {
   conversationId: string;
   role: 'user' | 'assistant';
   content: string;
+  providerId: string | null;
+  model: string | null;
   createdAt: string;
 }
 
@@ -123,13 +125,25 @@ export function getUsageSummary(db: Database.Database): UsageRow[] {
 
 export function getMessages(db: Database.Database, conversationId: string): StoredMessage[] {
   const rows = db
-    .prepare('select id, conversation_id, role, content, created_at from ai_messages where conversation_id = ? order by created_at, rowid')
-    .all(conversationId) as Array<{ id: string; conversation_id: string; role: string; content: string; created_at: string }>;
+    .prepare(
+      'select id, conversation_id, role, content, provider, model, created_at from ai_messages where conversation_id = ? order by created_at, rowid'
+    )
+    .all(conversationId) as Array<{
+    id: string;
+    conversation_id: string;
+    role: string;
+    content: string;
+    provider: string | null;
+    model: string | null;
+    created_at: string;
+  }>;
   return rows.map((row) => ({
     id: row.id,
     conversationId: row.conversation_id,
     role: row.role as 'user' | 'assistant',
     content: row.content,
+    providerId: row.provider,
+    model: row.model,
     createdAt: row.created_at,
   }));
 }

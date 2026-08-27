@@ -31,6 +31,7 @@ beforeEach(() => {
       listConversations: vi.fn().mockResolvedValue([]),
       renameConversation: vi.fn().mockResolvedValue(undefined),
       deleteConversation: vi.fn().mockResolvedValue(undefined),
+      getUsageSummary: vi.fn().mockResolvedValue([]),
       getMode: vi.fn().mockResolvedValue('ask'),
       setMode: vi.fn().mockResolvedValue(undefined),
       sendMessage: vi.fn().mockResolvedValue(undefined),

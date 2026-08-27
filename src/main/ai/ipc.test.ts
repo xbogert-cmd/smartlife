@@ -23,6 +23,10 @@ vi.mock('electron', () => ({
 vi.mock('./router', () => routerMocks);
 const pickAttachmentMock = vi.fn();
 vi.mock('./attachments/pickAttachment', () => ({ pickAttachment: pickAttachmentMock }));
+vi.mock('./conversation', async () => {
+  const actual = await vi.importActual<typeof import('./conversation')>('./conversation');
+  return { ...actual, getUsageSummary: vi.fn() };
+});
 
 function makeDb(): Database.Database {
   const db = new Database(':memory:');
@@ -32,7 +36,7 @@ function makeDb(): Database.Database {
     `create table ai_conversations (id text primary key, title text, created_at text not null default (datetime('now')), updated_at text not null default (datetime('now')));`
   );
   db.exec(
-    `create table ai_messages (id text primary key, conversation_id text not null references ai_conversations(id) on delete cascade, role text not null, content text not null, created_at text not null default (datetime('now')));`
+    `create table ai_messages (id text primary key, conversation_id text not null references ai_conversations(id) on delete cascade, role text not null, content text not null, provider text, model text, input_tokens integer, output_tokens integer, created_at text not null default (datetime('now')));`
   );
   return db;
 }
@@ -178,5 +182,19 @@ describe('conversation lifecycle IPC handlers', () => {
     const { call } = await setup();
     const id = await call('ai:create-conversation');
     expect(await call('ai:get-history', id)).toEqual([]);
+  });
+});
+
+describe('ai:get-usage-summary', () => {
+  it('delegates to conversation.getUsageSummary and returns its result', async () => {
+    const { getUsageSummary } = await import('./conversation');
+    vi.mocked(getUsageSummary).mockReturnValue([
+      { providerId: 'anthropic', model: 'claude-sonnet-5', displayName: 'Claude Sonnet 5', inputTokens: 10, outputTokens: 5, estimatedCostUsd: 0.001 },
+    ]);
+    const { call } = await setup();
+    const result = await call('ai:get-usage-summary');
+    expect(result).toEqual([
+      { providerId: 'anthropic', model: 'claude-sonnet-5', displayName: 'Claude Sonnet 5', inputTokens: 10, outputTokens: 5, estimatedCostUsd: 0.001 },
+    ]);
   });
 });
