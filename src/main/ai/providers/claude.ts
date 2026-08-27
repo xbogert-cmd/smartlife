@@ -2,7 +2,7 @@ import Anthropic, { APIError } from '@anthropic-ai/sdk';
 import { betaTool } from '@anthropic-ai/sdk/helpers/beta/json-schema';
 import type { ToolContext, ToolDefinition } from '../tools/types';
 import { findCatalogEntry } from './catalog';
-import { ProviderError, type AIProvider, type CanonicalTextBlock, type StreamEvent, type TurnResult } from './types';
+import { ProviderError, type AIProvider, type StreamEvent, type TurnResult } from './types';
 
 export function toBetaTools(tools: ToolDefinition[], ctx: ToolContext, visionCapable: boolean) {
   return tools

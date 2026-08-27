@@ -83,6 +83,15 @@ export function useConversation() {
     activeConversationIdRef.current = activeConversationId;
   }, [activeConversationId]);
 
+  // Same ref-mirroring pattern as activeConversationIdRef above -- the
+  // stream-event handler below lives in a useEffect with an empty dep array,
+  // so reading `catalog` directly there would be permanently stale from
+  // mount time (always [] until the app happened to remount).
+  const catalogRef = useRef<Array<{ providerId: string; model: string; displayName: string }>>([]);
+  useEffect(() => {
+    catalogRef.current = catalog;
+  }, [catalog]);
+
   useEffect(() => {
     window.smartlife.ai
       .hasUsableProvider()
@@ -185,6 +194,26 @@ export function useConversation() {
         setStatusLabel(null);
         streamingIdRef.current = null;
         setSending(false);
+        const completedConversationId = event.conversationId ?? activeConversationIdRef.current;
+        if (completedConversationId) {
+          window.smartlife.ai
+            .getHistory(completedConversationId)
+            .then((history) => {
+              // The user may have switched to a different conversation while
+              // this fetch was in flight -- only apply it if it's still the
+              // one actually showing.
+              if (activeConversationIdRef.current !== completedConversationId) return;
+              setMessages(
+                history.map((m, index) => ({
+                  id: `history-${index}`,
+                  role: m.role,
+                  text: extractText(m.content),
+                  answeredBy: displayNameFor(catalogRef.current, m.providerId, m.model),
+                }))
+              );
+            })
+            .catch(() => {});
+        }
       } else if (event.type === 'provider-switched') {
         // Next text-delta must start a fresh bubble, not append onto the
         // failed provider's partial text.

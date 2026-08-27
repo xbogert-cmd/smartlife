@@ -401,6 +401,47 @@ describe('useConversation — stream events scoped to the active conversation', 
       expect(assistantMessages[0].text).toBe('untagged');
     });
   });
+
+  it('attaches the answeredBy caption to a message built live from stream events, by refetching history once the turn completes', async () => {
+    ai.getHistory.mockImplementation((id: string) =>
+      Promise.resolve(
+        id === 'conv-1'
+          ? [
+              { role: 'user', content: [{ type: 'text', text: 'hi' }], providerId: null, model: null },
+              {
+                role: 'assistant',
+                content: [{ type: 'text', text: 'for you' }],
+                providerId: 'anthropic',
+                model: 'claude-sonnet-5',
+              },
+            ]
+          : []
+      )
+    );
+    const { result } = renderHook(() => useConversation());
+    await waitFor(() => expect(result.current.activeConversationId).toBe('conv-1'));
+    const onEvent = ai.onStreamEvent.mock.calls[0][0] as (event: unknown) => void;
+
+    act(() => {
+      result.current.sendMessage('hi');
+    });
+
+    onEvent({ type: 'text-delta', text: 'for you', conversationId: 'conv-1' });
+    await waitFor(() => {
+      const assistantMessages = result.current.messages.filter((m) => m.role === 'assistant');
+      expect(assistantMessages).toHaveLength(1);
+      expect(assistantMessages[0].text).toBe('for you');
+    });
+    // Before turn-complete, the live-built message has no answeredBy yet.
+    expect(result.current.messages.find((m) => m.role === 'assistant')?.answeredBy).toBeUndefined();
+
+    onEvent({ type: 'turn-complete', conversationId: 'conv-1' });
+
+    await waitFor(() => {
+      const assistantMessage = result.current.messages.find((m) => m.role === 'assistant');
+      expect(assistantMessage?.answeredBy).toBe('Claude Sonnet 5');
+    });
+  });
 });
 
 describe('useConversation — attachments', () => {

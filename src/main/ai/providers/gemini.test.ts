@@ -12,7 +12,12 @@ function fakeStream(
   chunks: Array<{
     text?: string;
     functionCalls?: Array<{ name: string; args: Record<string, unknown> }>;
-    usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
+    usageMetadata?: {
+      promptTokenCount?: number;
+      candidatesTokenCount?: number;
+      thoughtsTokenCount?: number;
+      toolUsePromptTokenCount?: number;
+    };
   }>
 ) {
   return (async function* () {
@@ -194,6 +199,24 @@ describe('createGeminiProvider — streamTurn tool-calling loop', () => {
     expect(result.usage).toEqual({ inputTokens: 175, outputTokens: 22 });
     expect(result.providerId).toBe('gemini');
     expect(result.model).toBe('gemini-2.5-flash');
+  });
+
+  it('includes thinking tokens and tool-use-prompt tokens in usage, not just prompt/candidates counts', async () => {
+    const sendMessageStream = vi.fn().mockResolvedValue(
+      fakeStream([
+        { text: 'answer' },
+        { usageMetadata: { promptTokenCount: 50, candidatesTokenCount: 10, thoughtsTokenCount: 25, toolUsePromptTokenCount: 15 } },
+      ])
+    );
+    const create = vi.fn().mockReturnValue({ sendMessageStream });
+    vi.mocked(GoogleGenAI).mockReturnValue({ chats: { create } } as never);
+
+    const provider = createGeminiProvider('test-key', 'gemini-2.5-flash');
+    const result = await provider.streamTurn({ system: 's', history: [], userText: 'hi', tools: [], ctx: fakeCtx(), onEvent: vi.fn() });
+
+    // input = promptTokenCount + toolUsePromptTokenCount = 50 + 15 = 65
+    // output = candidatesTokenCount + thoughtsTokenCount = 10 + 25 = 35
+    expect(result.usage).toEqual({ inputTokens: 65, outputTokens: 35 });
   });
 });
 

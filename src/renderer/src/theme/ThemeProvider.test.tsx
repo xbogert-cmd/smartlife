@@ -159,7 +159,7 @@ describe('ThemeProvider', () => {
     );
 
     await waitFor(() => expect(screen.getByTestId('resolved').textContent).toBe('dark'));
-    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+    await waitFor(() => expect(document.documentElement.getAttribute('data-theme')).toBe('dark'));
   });
 
   it('resolves "system" using the live system-change callback', async () => {

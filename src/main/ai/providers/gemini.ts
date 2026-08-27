@@ -117,8 +117,10 @@ export function createGeminiProvider(apiKey: string, model: string): AIProvider 
               if (call.name) functionCalls.push({ name: call.name, args: call.args ?? {} });
             }
             if (chunk.usageMetadata) {
-              roundInputTokens = chunk.usageMetadata.promptTokenCount ?? 0;
-              roundOutputTokens = chunk.usageMetadata.candidatesTokenCount ?? 0;
+              roundInputTokens =
+                (chunk.usageMetadata.promptTokenCount ?? 0) + (chunk.usageMetadata.toolUsePromptTokenCount ?? 0);
+              roundOutputTokens =
+                (chunk.usageMetadata.candidatesTokenCount ?? 0) + (chunk.usageMetadata.thoughtsTokenCount ?? 0);
             }
           }
 
