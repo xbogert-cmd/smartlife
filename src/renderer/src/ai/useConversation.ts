@@ -245,7 +245,15 @@ export function useConversation() {
 
   const sendMessage = useCallback(
     (text: string, view: unknown = null, voiceMode = false) => {
-      if (!activeConversationId) return;
+      // Every prior guard against sending mid-turn lived in a caller (the
+      // mic button disables itself while sending, but only for starting a
+      // recording -- stopping one was always allowed). Stop-recording's
+      // transcribe-then-send has no such gate, so a turn already in flight
+      // could get a second sendMessage call injected into it, resetting
+      // streamingIdRef/lastAssistantMessageIdRef out from under the first
+      // turn's still-arriving events. The guard belongs here, once, so every
+      // caller is covered without each having to remember it.
+      if (!activeConversationId || sending) return;
       const id = `user-${Date.now()}-${Math.random()}`;
       setMessages((prev) => [...prev, { id, role: 'user', text }]);
       setSending(true);
@@ -264,7 +272,7 @@ export function useConversation() {
           ]);
         });
     },
-    [attachments, activeConversationId, refreshConversations]
+    [attachments, activeConversationId, sending, refreshConversations]
   );
 
   const respondToConfirm = useCallback(

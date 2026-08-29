@@ -531,4 +531,30 @@ describe('useConversation — attachments', () => {
 
     expect(ai.sendMessage).toHaveBeenCalledWith('hi', null, [], 'conv-1', true);
   });
+
+  // Regression: typed Send while a voice recording is still open leaves a
+  // turn in flight; Stop then transcribes and calls sendMessage again with
+  // no guard of its own (every prior guard lived in the caller -- the mic
+  // button, gated on `sending` for starting only). The second call reset
+  // streamingIdRef/lastAssistantMessageIdRef out from under the still-live
+  // first turn, corrupting which bubble later text-delta events land on.
+  it('ignores a second sendMessage call while the first is still in flight', async () => {
+    const { result } = renderHook(() => useConversation());
+    await waitFor(() => expect(result.current.activeConversationId).toBe('conv-1'));
+
+    act(() => {
+      result.current.sendMessage('typed message');
+    });
+    expect(result.current.sending).toBe(true);
+
+    act(() => {
+      // Simulates Stop-recording's transcribe-then-send firing while the
+      // typed turn above is still in flight.
+      result.current.sendMessage('voice transcript');
+    });
+
+    expect(ai.sendMessage).toHaveBeenCalledTimes(1);
+    expect(ai.sendMessage).toHaveBeenCalledWith('typed message', null, [], 'conv-1', false);
+    expect(result.current.messages.map((m) => m.text)).toEqual(['typed message']);
+  });
 });

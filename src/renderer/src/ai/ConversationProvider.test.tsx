@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, cleanup } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { ConversationProvider, useConversationContext, useVoiceContext } from './ConversationProvider';
 
@@ -63,8 +64,15 @@ function ConsumerB() {
 }
 
 function VoiceConsumerA() {
-  const { voiceModeOn, isRecording } = useVoiceContext();
-  return <div data-testid="voice-a">{`${voiceModeOn}:${isRecording}`}</div>;
+  const { voiceModeOn, isRecording, toggleVoiceMode } = useVoiceContext();
+  return (
+    <div>
+      <div data-testid="voice-a">{`${voiceModeOn}:${isRecording}`}</div>
+      <button type="button" onClick={toggleVoiceMode}>
+        toggle from A
+      </button>
+    </div>
+  );
 }
 function VoiceConsumerB() {
   const { voiceModeOn, isRecording } = useVoiceContext();
@@ -117,5 +125,28 @@ describe('ConversationProvider', () => {
     );
     await waitFor(() => expect(screen.getByTestId('voice-a').textContent).toBe('false:false'));
     expect(screen.getByTestId('voice-b').textContent).toBe('false:false');
+  });
+
+  // The test above only proves both consumers start with the same value --
+  // two independent instances that both default to false:false would pass
+  // it too. Prove sharing for real: toggle from one consumer and require
+  // the OTHER, never-clicked consumer to observe the change.
+  it('propagates a voice-mode toggle made through one consumer to every other consumer', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <ConversationProvider>
+          <VoiceConsumerA />
+          <VoiceConsumerB />
+        </ConversationProvider>
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(screen.getByTestId('voice-a').textContent).toBe('false:false'));
+    expect(screen.getByTestId('voice-b').textContent).toBe('false:false');
+
+    await user.click(screen.getByRole('button', { name: 'toggle from A' }));
+
+    expect(screen.getByTestId('voice-a').textContent).toBe('true:false');
+    expect(screen.getByTestId('voice-b').textContent).toBe('true:false');
   });
 });
