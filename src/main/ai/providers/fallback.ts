@@ -1,4 +1,4 @@
-import type { AIProvider, ProviderId, StreamEvent } from './types';
+import { ProviderError, type AIProvider, type ProviderId, type StreamEvent } from './types';
 
 export interface RankedEntry {
   providerId: ProviderId;
@@ -74,9 +74,17 @@ export function createFallbackProvider(entries: RankedEntry[], options: Fallback
             const triedNames = [...triedThisTurn]
               .map((k) => entries.find((e) => key(e) === k)?.displayName ?? k)
               .join(', ');
-            throw new Error(
-              `Everything tried failed: ${triedNames}. ${error instanceof Error ? error.message : ''}`.trim()
-            );
+            const message = `Everything tried failed: ${triedNames}. ${
+              error instanceof Error ? error.message : ''
+            }`.trim();
+            // Preserve ProviderError-ness, not just its text: chatController
+            // only shows a caught error's own message when it's a
+            // ProviderError, falling back to a generic "Something went
+            // wrong" for anything else. A provider's own deliberate error
+            // (e.g. "credit balance too low") is exactly the case meant to
+            // reach the user -- wrapping it in a plain Error here silently
+            // downgraded every single-entry failure to that generic text.
+            throw error instanceof ProviderError ? new ProviderError(message) : new Error(message);
           }
           const reason = error instanceof Error ? error.message : 'unavailable';
           params.onEvent({

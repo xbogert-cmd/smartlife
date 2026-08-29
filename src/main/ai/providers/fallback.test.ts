@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { CanonicalImageBlock } from '../tools/types';
-import type { AIProvider, ProviderId, TurnResult } from './types';
+import { ProviderError, type AIProvider, type ProviderId, type TurnResult } from './types';
 import { createFallbackProvider, type RankedEntry } from './fallback';
 
 function fakeProvider(
@@ -87,6 +87,24 @@ describe('createFallbackProvider', () => {
     const fallback = createFallbackProvider(entries);
     await expect(fallback.streamTurn(baseParams())).rejects.toThrow(/Everything tried failed/);
     expect(pricier.streamTurn).not.toHaveBeenCalled();
+  });
+
+  it('re-throws a ProviderError, not a plain Error, when the only entry fails with one -- chatController only shows a provider\'s own message for a ProviderError instance, so losing that type turns a specific reason (e.g. "credit balance too low") into a generic "Something went wrong"', async () => {
+    const solo: AIProvider = {
+      streamTurn: vi.fn(async () => {
+        throw new ProviderError('Your credit balance is too low to access the Anthropic API.');
+      }),
+    };
+    const entries: RankedEntry[] = [{ providerId: 'anthropic', model: 'a', displayName: 'A', costRank: 1, provider: solo }];
+    const fallback = createFallbackProvider(entries);
+    let caught: unknown;
+    try {
+      await fallback.streamTurn(baseParams());
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(ProviderError);
+    expect((caught as Error).message).toMatch(/credit balance is too low/);
   });
 
   it('sticky-skips an already-failed entry on a later, separate call, without retrying it', async () => {
