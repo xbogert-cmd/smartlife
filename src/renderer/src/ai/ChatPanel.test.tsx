@@ -1,9 +1,29 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { ChatPanel } from './ChatPanel';
 import type { ChatMessage } from './useConversation';
+
+// ChatPanel now renders ModelPicker in its header, which fetches its own
+// data over IPC -- give it a real ranked list to work with so it renders
+// exactly the way it does in the app, rather than silently rendering null.
+beforeEach(() => {
+  vi.stubGlobal('window', window);
+  (window as unknown as { smartlife: unknown }).smartlife = {
+    ai: {
+      getCatalog: vi.fn().mockResolvedValue([]),
+      getRanking: vi.fn().mockResolvedValue([{ providerId: 'ollama', model: 'llama3.1:8b' }]),
+      getPinnedEntry: vi.fn().mockResolvedValue(null),
+      setPinnedEntry: vi.fn().mockResolvedValue(undefined),
+      clearPinnedEntry: vi.fn().mockResolvedValue(undefined),
+      getApiKeyStatus: vi.fn().mockResolvedValue(true),
+      getGeminiKeyStatus: vi.fn().mockResolvedValue(true),
+      listOllamaModels: vi.fn().mockResolvedValue([{ name: 'llama3.1:8b' }]),
+      onStreamEvent: vi.fn().mockReturnValue(() => {}),
+    },
+  };
+});
 
 function messages(count: number): ChatMessage[] {
   return Array.from({ length: count }, (_, i) => ({

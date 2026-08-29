@@ -33,6 +33,15 @@ beforeEach(() => {
       renameConversation: vi.fn().mockResolvedValue(undefined),
       deleteConversation: vi.fn().mockResolvedValue(undefined),
       getCatalog: vi.fn().mockResolvedValue([]),
+      // ModelPicker (rendered inside ChatPanel) -- empty ranking makes it
+      // render null, keeping this file's existing assertions unaffected.
+      getRanking: vi.fn().mockResolvedValue([]),
+      getPinnedEntry: vi.fn().mockResolvedValue(null),
+      setPinnedEntry: vi.fn().mockResolvedValue(undefined),
+      clearPinnedEntry: vi.fn().mockResolvedValue(undefined),
+      getApiKeyStatus: vi.fn().mockResolvedValue(true),
+      getGeminiKeyStatus: vi.fn().mockResolvedValue(true),
+      listOllamaModels: vi.fn().mockResolvedValue([]),
     },
     browser: { suspend, resume },
   };

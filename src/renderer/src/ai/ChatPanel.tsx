@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { ChatMessage, PendingAttachment, PendingConfirm } from './useConversation';
+import { ModelPicker } from './ModelPicker';
 
 export interface ChatPanelProps {
   messages: ChatMessage[];
@@ -83,6 +84,7 @@ export function ChatPanel({
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-end gap-2 px-4 pt-3">
+        <ModelPicker />
         <button
           type="button"
           onClick={onToggleVoiceMode}

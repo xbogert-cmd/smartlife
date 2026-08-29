@@ -19,7 +19,12 @@ type StreamCb = (event: { type: string; text?: string; toolLabel?: string }) => 
 type ConfirmCb = (req: { id: string; toolName: string; description: string }) => void;
 
 function mockAi(apiKeyConfigured = true) {
-  let streamCb: StreamCb | null = null;
+  // A real ipcRenderer.on supports any number of independent listeners --
+  // ChatPanel now also registers one (ModelPicker), so this must fan events
+  // out to every listener rather than tracking a single slot that the last
+  // registration would silently clobber.
+  const streamListeners = new Set<StreamCb>();
+  const emitStream = (event: Parameters<StreamCb>[0]): void => streamListeners.forEach((cb) => cb(event));
   let confirmCb: ConfirmCb | null = null;
   return {
     hasUsableProvider: vi.fn().mockResolvedValue(apiKeyConfigured),
@@ -29,16 +34,16 @@ function mockAi(apiKeyConfigured = true) {
     getHistory: vi.fn().mockResolvedValue([]),
     sendMessage: vi.fn().mockImplementation(() => {
       queueMicrotask(() => {
-        streamCb?.({ type: 'text-delta', text: 'Hello ' });
-        streamCb?.({ type: 'text-delta', text: 'there!' });
-        streamCb?.({ type: 'turn-complete' });
+        emitStream({ type: 'text-delta', text: 'Hello ' });
+        emitStream({ type: 'text-delta', text: 'there!' });
+        emitStream({ type: 'turn-complete' });
       });
       return Promise.resolve();
     }),
     onStreamEvent: vi.fn((cb: StreamCb) => {
-      streamCb = cb;
+      streamListeners.add(cb);
       return () => {
-        streamCb = null;
+        streamListeners.delete(cb);
       };
     }),
     onConfirmRequest: vi.fn((cb: ConfirmCb) => {
@@ -57,6 +62,15 @@ function mockAi(apiKeyConfigured = true) {
     renameConversation: vi.fn().mockResolvedValue(undefined),
     deleteConversation: vi.fn().mockResolvedValue(undefined),
     getCatalog: vi.fn().mockResolvedValue([]),
+    // ModelPicker (rendered inside ChatPanel) -- empty ranking makes it
+    // render null, keeping this file's existing assertions unaffected.
+    getRanking: vi.fn().mockResolvedValue([]),
+    getPinnedEntry: vi.fn().mockResolvedValue(null),
+    setPinnedEntry: vi.fn().mockResolvedValue(undefined),
+    clearPinnedEntry: vi.fn().mockResolvedValue(undefined),
+    getApiKeyStatus: vi.fn().mockResolvedValue(true),
+    getGeminiKeyStatus: vi.fn().mockResolvedValue(true),
+    listOllamaModels: vi.fn().mockResolvedValue([]),
     triggerConfirm: (req: { id: string; toolName: string; description: string }) => confirmCb?.(req),
   };
 }
