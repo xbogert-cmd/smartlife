@@ -61,7 +61,6 @@ export const DENIED_PERMISSIONS: readonly string[] = [
  * instead, so if something genuinely breaks there is evidence rather than a
  * theory.
  */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function shouldAllowPermission(_permission: string): boolean {
   return false;
 }

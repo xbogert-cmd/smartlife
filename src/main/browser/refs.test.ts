@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { invalidateTab, recordElements, resolveElement } from './refs';
 
 describe('refs registry', () => {
