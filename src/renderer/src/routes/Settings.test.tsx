@@ -82,6 +82,23 @@ describe('Settings — AI Providers', () => {
   });
 });
 
+describe('Settings — AI permission mode', () => {
+  it('shows a one-line description for each mode', async () => {
+    render(
+      <ThemeProvider>
+        <Settings />
+      </ThemeProvider>
+    );
+    await screen.findByRole('heading', { name: 'Settings' });
+
+    expect(screen.getByText('Confirms every action, including looking things up.')).toBeInTheDocument();
+    expect(
+      screen.getByText('Confirms anything it writes or changes; looks things up freely.')
+    ).toBeInTheDocument();
+    expect(screen.getByText('Confirms only irreversible or outward-facing actions.')).toBeInTheDocument();
+  });
+});
+
 describe('Settings — Canvas', () => {
   beforeEach(async () => {
     render(

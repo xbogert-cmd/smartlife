@@ -159,21 +159,31 @@ export function Settings() {
       <UsageSection />
       <div className="flex flex-col gap-2">
         <span style={{ color: 'var(--color-text-muted)' }}>AI permission mode</span>
-        <div className="flex gap-2">
-          {(['ask', 'assist', 'auto'] as const).map((mode) => (
-            <button
-              key={mode}
-              type="button"
-              onClick={() => handleSetAiMode(mode)}
-              className="rounded-md px-3 py-1.5 text-sm capitalize"
-              style={{
-                backgroundColor: aiMode === mode ? 'var(--color-text)' : 'var(--color-surface)',
-                color: aiMode === mode ? 'var(--color-bg)' : 'var(--color-text)',
-                border: '1px solid var(--color-border)',
-              }}
-            >
-              {mode}
-            </button>
+        <div className="flex flex-col gap-2">
+          {(
+            [
+              ['ask', 'Confirms every action, including looking things up.'],
+              ['assist', 'Confirms anything it writes or changes; looks things up freely.'],
+              ['auto', 'Confirms only irreversible or outward-facing actions.'],
+            ] as const
+          ).map(([mode, description]) => (
+            <div key={mode} className="flex flex-col gap-1">
+              <button
+                type="button"
+                onClick={() => handleSetAiMode(mode)}
+                className="w-fit rounded-md px-3 py-1.5 text-sm capitalize"
+                style={{
+                  backgroundColor: aiMode === mode ? 'var(--color-text)' : 'var(--color-surface)',
+                  color: aiMode === mode ? 'var(--color-bg)' : 'var(--color-text)',
+                  border: '1px solid var(--color-border)',
+                }}
+              >
+                {mode}
+              </button>
+              <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                {description}
+              </span>
+            </div>
           ))}
         </div>
       </div>
