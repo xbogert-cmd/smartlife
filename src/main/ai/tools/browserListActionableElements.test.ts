@@ -13,9 +13,11 @@ afterEach(() => {
 });
 
 describe('browser_list_actionable_elements', () => {
-  it('is a READ tool that never pauses', () => {
+  it('is a READ tool that only pauses in ask mode', () => {
     expect(browserListActionableElementsTool.tier).toBe('READ');
-    expect(resolveExecutionMode(browserListActionableElementsTool.tier, 'ask')).toBe('auto');
+    expect(resolveExecutionMode(browserListActionableElementsTool.tier, 'ask')).toBe('pause');
+    expect(resolveExecutionMode(browserListActionableElementsTool.tier, 'assist')).toBe('auto');
+    expect(resolveExecutionMode(browserListActionableElementsTool.tier, 'auto')).toBe('auto');
   });
 
   it('reports each element with its ref, role, and label', async () => {

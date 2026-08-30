@@ -26,7 +26,7 @@ function fakeStream(
 }
 
 function fakeCtx() {
-  return { db: {} as never, conversationId: 'c1', mode: 'ask' as const, requestConfirmation: vi.fn() };
+  return { db: {} as never, conversationId: 'c1', mode: 'assist' as const, requestConfirmation: vi.fn() };
 }
 
 describe('describeError', () => {
@@ -369,5 +369,32 @@ describe('screenshot round-trip', () => {
     await provider.streamTurn({ system: 's', history: [], userText: 'hi', tools: [], ctx, onEvent: vi.fn() });
 
     expect(pendingImages).toEqual([]);
+  });
+});
+
+describe('Ask mode gates READ-tier tools through runTool', () => {
+  it('pauses for confirmation before running a READ-tier tool when ctx.mode is ask', async () => {
+    const requestConfirmation = vi.fn().mockResolvedValue(false);
+    const run = vi.fn().mockResolvedValue('should not be reached');
+    const tool: ToolDefinition = {
+      name: 'get_settings',
+      tier: 'READ',
+      label: 'Reading settings',
+      schema: { name: 'get_settings', description: '', input_schema: { type: 'object', properties: {} } },
+      run,
+    };
+    const sendMessageStream = vi
+      .fn()
+      .mockResolvedValueOnce(fakeStream([{ functionCalls: [{ name: 'get_settings', args: {} }] }]))
+      .mockResolvedValueOnce(fakeStream([{ text: 'declined' }]));
+    const create = vi.fn().mockReturnValue({ sendMessageStream });
+    vi.mocked(GoogleGenAI).mockReturnValue({ chats: { create } } as never);
+
+    const provider = createGeminiProvider('test-key', 'gemini-2.5-flash');
+    const ctx = { db: {} as never, conversationId: 'c1', mode: 'ask' as const, requestConfirmation };
+    await provider.streamTurn({ system: 's', history: [], userText: 'settings?', tools: [tool], ctx, onEvent: vi.fn() });
+
+    expect(requestConfirmation).toHaveBeenCalledWith('get_settings', 'Reading settings', undefined);
+    expect(run).not.toHaveBeenCalled();
   });
 });

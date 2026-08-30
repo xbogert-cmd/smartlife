@@ -104,9 +104,11 @@ describe('canvas_find_assignment', () => {
     expect(out).toMatch(/provide part of an assignment name/i);
   });
 
-  it('is a READ tool that never pauses', () => {
+  it('is a READ tool that only pauses in ask mode', () => {
     expect(canvasFindAssignmentTool.tier).toBe('READ');
-    expect(resolveExecutionMode(canvasFindAssignmentTool.tier, 'ask')).toBe('auto');
+    expect(resolveExecutionMode(canvasFindAssignmentTool.tier, 'ask')).toBe('pause');
+    expect(resolveExecutionMode(canvasFindAssignmentTool.tier, 'assist')).toBe('auto');
+    expect(resolveExecutionMode(canvasFindAssignmentTool.tier, 'auto')).toBe('auto');
   });
 });
 

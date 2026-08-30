@@ -9,7 +9,7 @@ vi.mock('@anthropic-ai/sdk', async (importOriginal) => {
 });
 
 function fakeCtx() {
-  return { db: {} as never, conversationId: 'c1', mode: 'ask' as const, requestConfirmation: vi.fn() };
+  return { db: {} as never, conversationId: 'c1', mode: 'assist' as const, requestConfirmation: vi.fn() };
 }
 
 /** An empty async-iterable runner -- the streamTurn `for await` loop body
@@ -18,6 +18,16 @@ function fakeCtx() {
  *  SDK's real streaming/tool-call machinery. */
 function emptyRunner() {
   return (async function* () {})();
+}
+
+function fakeMessageStream(finalMessage: {
+  content: Array<{ type: 'text'; text: string }>;
+  usage: { input_tokens: number; output_tokens: number };
+}) {
+  return {
+    [Symbol.asyncIterator]: () => (async function* () {})(),
+    finalMessage: async () => finalMessage,
+  };
 }
 
 describe('describeError', () => {
@@ -51,16 +61,6 @@ describe('createClaudeProvider', () => {
 });
 
 describe('createClaudeProvider — usage tracking', () => {
-  function fakeMessageStream(finalMessage: {
-    content: Array<{ type: 'text'; text: string }>;
-    usage: { input_tokens: number; output_tokens: number };
-  }) {
-    return {
-      [Symbol.asyncIterator]: () => (async function* () {})(),
-      finalMessage: async () => finalMessage,
-    };
-  }
-
   it('reports usage summed across every round the tool runner yields, and the identity it was constructed with', async () => {
     const round1 = fakeMessageStream({
       content: [{ type: 'text', text: '' }],
@@ -244,5 +244,42 @@ describe('attachments', () => {
 
     const messages = toolRunner.mock.calls[0][0].messages as Array<{ content: unknown }>;
     expect(messages[messages.length - 1].content).toBe('hi');
+  });
+});
+
+describe('Ask mode gates READ-tier tools through runTool', () => {
+  it('pauses for confirmation before running a READ-tier tool when ctx.mode is ask', async () => {
+    const requestConfirmation = vi.fn().mockResolvedValue(false);
+    const run = vi.fn().mockResolvedValue('should not be reached');
+    const tool: import('../tools/types').ToolDefinition = {
+      name: 'get_settings',
+      tier: 'READ',
+      label: 'Reading settings',
+      schema: { name: 'get_settings', description: '', input_schema: { type: 'object', properties: {} } },
+      run,
+    };
+    const toolRunner = vi.fn().mockReturnValue(
+      (async function* () {
+        yield fakeMessageStream({
+          content: [{ type: 'text', text: 'declined' }],
+          usage: { input_tokens: 1, output_tokens: 1 },
+        });
+      })()
+    );
+    vi.mocked(Anthropic).mockReturnValue({ beta: { messages: { toolRunner } } } as never);
+
+    const provider = createClaudeProvider('sk-ant-test', 'claude-sonnet-5');
+    const ctx = { db: {} as never, conversationId: 'c1', mode: 'ask' as const, requestConfirmation };
+    await provider.streamTurn({ system: 's', history: [], userText: 'hi', tools: [tool], ctx, onEvent: vi.fn() });
+
+    // toolRunner is constructed with the tool's `run` wrapped by runTool --
+    // invoke it the way the SDK would, to prove gating actually happens.
+    const toolsPassed = toolRunner.mock.calls[0][0].tools;
+    const wrappedRun = toolsPassed[0].run as (input: Record<string, unknown>) => Promise<unknown>;
+    const result = await wrappedRun({});
+
+    expect(requestConfirmation).toHaveBeenCalledWith('get_settings', 'Reading settings', undefined);
+    expect(run).not.toHaveBeenCalled();
+    expect(result).toBe('The user declined, so this was not checked.');
   });
 });

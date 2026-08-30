@@ -10,6 +10,7 @@ import {
   type TurnMessage,
   type TurnResult,
 } from './types';
+import { runTool } from '../tools/runTool';
 
 export function toFunctionDeclarations(tools: ToolDefinition[], visionCapable: boolean): FunctionDeclaration[] {
   return tools
@@ -55,7 +56,7 @@ async function runOneTool(
 ): Promise<string> {
   const tool = tools.find((t) => t.schema.name === name);
   if (!tool) return `Unknown tool: ${name}`;
-  return tool.run(args, ctx);
+  return runTool(tool, args, ctx);
 }
 
 /**

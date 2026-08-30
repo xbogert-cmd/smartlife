@@ -3,6 +3,7 @@ import { betaTool } from '@anthropic-ai/sdk/helpers/beta/json-schema';
 import type { ToolContext, ToolDefinition } from '../tools/types';
 import { findCatalogEntry } from './catalog';
 import { ProviderError, type AIProvider, type StreamEvent, type TurnResult } from './types';
+import { runTool } from '../tools/runTool';
 
 export function toBetaTools(tools: ToolDefinition[], ctx: ToolContext, visionCapable: boolean) {
   return tools
@@ -13,7 +14,7 @@ export function toBetaTools(tools: ToolDefinition[], ctx: ToolContext, visionCap
         description: tool.schema.description,
         inputSchema: tool.schema.input_schema as { type: 'object'; [key: string]: unknown },
         run: async (input: Record<string, unknown>) => {
-          const text = await tool.run(input, ctx);
+          const text = await runTool(tool, input, ctx);
           const pending = ctx.pendingImages ?? [];
           if (pending.length === 0) return text;
           const images = pending.splice(0, pending.length);

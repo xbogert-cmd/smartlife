@@ -78,12 +78,12 @@ describe('Canvas tool registration', () => {
     expect(names).toContain('canvas_search_materials');
   });
 
-  it('registers them at READ tier, which never pauses in any mode', () => {
+  it('registers them at READ tier, which only pauses in ask mode', () => {
     for (const tool of [canvasUpcomingTool, canvasGradesTool, canvasSearchMaterialsTool]) {
       expect(tool.tier).toBe('READ');
-      for (const mode of ['ask', 'assist', 'auto'] as const) {
-        expect(resolveExecutionMode(tool.tier, mode)).toBe('auto');
-      }
+      expect(resolveExecutionMode(tool.tier, 'ask')).toBe('pause');
+      expect(resolveExecutionMode(tool.tier, 'assist')).toBe('auto');
+      expect(resolveExecutionMode(tool.tier, 'auto')).toBe('auto');
     }
   });
 

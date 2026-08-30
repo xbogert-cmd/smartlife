@@ -13,7 +13,7 @@ function ndjsonResponse(lines: object[]): Response {
 }
 
 function fakeCtx() {
-  return { db: {} as never, conversationId: 'c1', mode: 'ask' as const, requestConfirmation: vi.fn() };
+  return { db: {} as never, conversationId: 'c1', mode: 'assist' as const, requestConfirmation: vi.fn() };
 }
 
 describe('toOllamaTools', () => {
@@ -439,5 +439,38 @@ describe('listOllamaModels', () => {
     );
     const models = await listOllamaModels('http://localhost:11434');
     expect(models).toEqual([{ name: 'llama3.1:8b' }, { name: 'qwen2.5:7b' }]);
+  });
+});
+
+describe('Ask mode gates READ-tier tools through runTool', () => {
+  it('pauses for confirmation before running a READ-tier tool when ctx.mode is ask', async () => {
+    const requestConfirmation = vi.fn().mockResolvedValue(false);
+    const run = vi.fn().mockResolvedValue('should not be reached');
+    const tool: ToolDefinition = {
+      name: 'get_settings',
+      tier: 'READ',
+      label: 'Reading settings',
+      schema: { name: 'get_settings', description: '', input_schema: { type: 'object', properties: {} } },
+      run,
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        ndjsonResponse([
+          {
+            message: { role: 'assistant', content: '', tool_calls: [{ function: { name: 'get_settings', arguments: {} } }] },
+            done: true,
+          },
+        ])
+      )
+      .mockResolvedValueOnce(ndjsonResponse([{ message: { role: 'assistant', content: 'declined' }, done: true }]));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const provider = createOllamaProvider('http://localhost:11434', 'llama3.1');
+    const ctx = { db: {} as never, conversationId: 'c1', mode: 'ask' as const, requestConfirmation };
+    await provider.streamTurn({ system: 's', history: [], userText: 'settings?', tools: [tool], ctx, onEvent: vi.fn() });
+
+    expect(requestConfirmation).toHaveBeenCalledWith('get_settings', 'Reading settings', undefined);
+    expect(run).not.toHaveBeenCalled();
   });
 });

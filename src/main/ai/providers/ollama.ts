@@ -1,6 +1,7 @@
 import type { ToolContext, ToolDefinition } from '../tools/types';
 import { isKnownGoodForVision } from './catalog';
 import { ProviderError, type AIProvider, type CanonicalContentBlock, type CanonicalTextBlock, type StreamEvent, type TurnMessage, type TurnResult } from './types';
+import { runTool } from '../tools/runTool';
 
 interface OllamaTool {
   type: 'function';
@@ -122,7 +123,7 @@ async function runOneTool(
 ): Promise<string> {
   const tool = tools.find((t) => t.schema.name === name);
   if (!tool) return `Unknown tool: ${name}`;
-  return tool.run(args, ctx);
+  return runTool(tool, args, ctx);
 }
 
 /**
