@@ -169,6 +169,10 @@ describe('concurrent confirmations queue instead of racing', () => {
     expect(getPendingConfirmation()).toMatchObject({ toolName: 'canvas_upcoming_assignments' });
 
     resolveConfirmation(sent[0].id, true);
+    // Resolving the first synchronously dispatches the second (it's now at
+    // the head of the queue) -- resolve it too so this test doesn't leave a
+    // live pending entry and timer for whatever test runs after it.
+    resolveConfirmation(sent[1].id, true);
     return first;
   });
 });
