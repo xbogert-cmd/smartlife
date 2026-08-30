@@ -81,6 +81,22 @@ describe('runTool', () => {
     expect(result).toBe('theme set');
   });
 
+  it('gates using tool.schema.name, not tool.name, since that is what providers dispatch by', async () => {
+    const mismatchedTool: ToolDefinition = {
+      name: 'internal_id',
+      tier: 'READ',
+      label: 'Get settings',
+      schema: { name: 'get_settings', description: '', input_schema: { type: 'object', properties: {} } },
+      run: vi.fn().mockResolvedValue('the settings'),
+    };
+    const requestConfirmation = vi.fn().mockResolvedValue(true);
+    const ctx = fakeCtx({ mode: 'ask', requestConfirmation });
+
+    await runTool(mismatchedTool, {}, ctx);
+
+    expect(requestConfirmation).toHaveBeenCalledWith('get_settings', 'Get settings', undefined);
+  });
+
   it('passes input through to tool.run unchanged', async () => {
     const run = vi.fn().mockResolvedValue('ok');
     const tool: ToolDefinition = { ...writeTool, run };

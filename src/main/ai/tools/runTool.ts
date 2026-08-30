@@ -15,7 +15,7 @@ export async function runTool(
   ctx: ToolContext
 ): Promise<string> {
   if (tool.tier === 'READ') {
-    const approved = await gate('READ', ctx.mode, tool.name, tool.label, ctx.requestConfirmation);
+    const approved = await gate('READ', ctx.mode, tool.schema.name, tool.label, ctx.requestConfirmation);
     if (!approved) return 'The user declined, so this was not checked.';
   }
   return tool.run(input, ctx);

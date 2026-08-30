@@ -171,6 +171,7 @@ export function Settings() {
               <button
                 type="button"
                 onClick={() => handleSetAiMode(mode)}
+                aria-describedby={`ai-mode-description-${mode}`}
                 className="w-fit rounded-md px-3 py-1.5 text-sm capitalize"
                 style={{
                   backgroundColor: aiMode === mode ? 'var(--color-text)' : 'var(--color-surface)',
@@ -180,7 +181,7 @@ export function Settings() {
               >
                 {mode}
               </button>
-              <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+              <span id={`ai-mode-description-${mode}`} className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
                 {description}
               </span>
             </div>

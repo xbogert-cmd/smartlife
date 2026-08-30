@@ -97,6 +97,22 @@ describe('Settings — AI permission mode', () => {
     ).toBeInTheDocument();
     expect(screen.getByText('Confirms only irreversible or outward-facing actions.')).toBeInTheDocument();
   });
+
+  it('associates each mode button with its description for assistive tech', async () => {
+    render(
+      <ThemeProvider>
+        <Settings />
+      </ThemeProvider>
+    );
+    await screen.findByRole('heading', { name: 'Settings' });
+
+    const askButton = screen.getByRole('button', { name: 'ask' });
+    const describedById = askButton.getAttribute('aria-describedby');
+    expect(describedById).toBeTruthy();
+    expect(document.getElementById(describedById!)?.textContent).toBe(
+      'Confirms every action, including looking things up.'
+    );
+  });
 });
 
 describe('Settings — Canvas', () => {

@@ -26,6 +26,10 @@ function fakeStream(
 }
 
 function fakeCtx() {
+  // 'assist' so READ-tier tools in these tests run without pausing for
+  // confirmation -- these tests are about tool-calling/result formatting,
+  // not permission gating. The ask-mode gating case has its own dedicated
+  // test below ("Ask mode gates READ-tier tools through runTool").
   return { db: {} as never, conversationId: 'c1', mode: 'assist' as const, requestConfirmation: vi.fn() };
 }
 

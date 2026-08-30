@@ -137,3 +137,38 @@ describe('confirmation resolution broadcast', () => {
     vi.useRealTimers();
   });
 });
+
+describe('concurrent confirmations queue instead of racing', () => {
+  it('does not send the second confirmation until the first resolves', async () => {
+    const sent: Array<{ id: string; toolName: string; description: string }> = [];
+    const send = (payload: { id: string; toolName: string; description: string }) => sent.push(payload);
+
+    const first = requestConfirmation(send, 'canvas_upcoming_assignments', 'Read upcoming assignments');
+    const second = requestConfirmation(send, 'calendar_list_events', 'Read calendar events');
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0].toolName).toBe('canvas_upcoming_assignments');
+
+    resolveConfirmation(sent[0].id, true);
+    await first;
+
+    expect(sent).toHaveLength(2);
+    expect(sent[1].toolName).toBe('calendar_list_events');
+
+    resolveConfirmation(sent[1].id, true);
+    await second;
+  });
+
+  it('still shows only one confirmation at a time via getPendingConfirmation while two are queued', () => {
+    const sent: Array<{ id: string; toolName: string; description: string }> = [];
+    const send = (payload: { id: string; toolName: string; description: string }) => sent.push(payload);
+
+    const first = requestConfirmation(send, 'canvas_upcoming_assignments', 'Read upcoming assignments');
+    requestConfirmation(send, 'calendar_list_events', 'Read calendar events');
+
+    expect(getPendingConfirmation()).toMatchObject({ toolName: 'canvas_upcoming_assignments' });
+
+    resolveConfirmation(sent[0].id, true);
+    return first;
+  });
+});

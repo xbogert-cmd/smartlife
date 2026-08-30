@@ -28,26 +28,52 @@ export function setConfirmationBroadcaster(fn: (id: string) => void): void {
   broadcastResolved = fn;
 }
 
+interface QueuedRequest {
+  send: (payload: { id: string; toolName: string; description: string }) => void;
+  toolName: string;
+  description: string;
+  timeoutMs: number;
+  resolve: (approved: boolean) => void;
+}
+
+// Queued, not dispatched immediately -- a tool round can call
+// requestConfirmation more than once concurrently (two of the three AI
+// providers run a round's tool calls in parallel), but the renderer only
+// ever shows one confirmation at a time. Without this queue the second
+// concurrent request silently overwrote the first in the renderer's single
+// pending slot, orphaning it until its timeout auto-declined it. dispatchNext
+// only ever sends the head of the queue, and resolveConfirmation advances the
+// queue -- so at most one confirmation is ever actually shown to the user,
+// and every later one's timeout clock only starts once it is actually shown.
+const queue: QueuedRequest[] = [];
+let dispatching = false;
+
+function dispatchNext(): void {
+  if (dispatching) return;
+  const next = queue.shift();
+  if (!next) return;
+  dispatching = true;
+  const id = randomUUID();
+  pending.set(id, { toolName: next.toolName, description: next.description, resolve: next.resolve });
+  timeouts.set(
+    id,
+    setTimeout(() => {
+      timeouts.delete(id);
+      if (pending.has(id)) resolveConfirmation(id, false);
+    }, next.timeoutMs)
+  );
+  next.send({ id, toolName: next.toolName, description: next.description });
+}
+
 export function requestConfirmation(
   send: (payload: { id: string; toolName: string; description: string }) => void,
   toolName: string,
   description: string,
   timeoutMs: number = DEFAULT_TIMEOUT_MS
 ): Promise<boolean> {
-  const id = randomUUID();
   return new Promise((resolve) => {
-    pending.set(id, { toolName, description, resolve });
-    // An abandoned confirmation (window closed, overlay unmounted, renderer
-    // reloaded) would otherwise park this promise in `pending` forever and
-    // hang the AI turn awaiting it — treat a no-response as declined.
-    timeouts.set(
-      id,
-      setTimeout(() => {
-        timeouts.delete(id);
-        if (pending.has(id)) resolveConfirmation(id, false);
-      }, timeoutMs)
-    );
-    send({ id, toolName, description });
+    queue.push({ send, toolName, description, timeoutMs, resolve });
+    dispatchNext();
   });
 }
 
@@ -62,13 +88,17 @@ export function resolveConfirmation(id: string, approved: boolean): void {
   }
   entry.resolve(approved);
   broadcastResolved(id);
+  dispatching = false;
+  dispatchNext();
 }
 
 /** The single confirmation currently outstanding, if any -- lets a freshly
  *  mounted component (the AI dock reopened, or the badge hook that never
  *  unmounts) learn about one it did not see get requested. At most one is
- *  ever outstanding: the app has a single in-flight turn (chatController.ts's
- *  turnInFlight), and a turn can only be awaiting one tool call at a time. */
+ *  ever outstanding to the renderer: dispatchNext above only ever sends the
+ *  head of the internal queue, so a second concurrent requestConfirmation
+ *  call waits in `queue` rather than reaching the renderer until the first
+ *  resolves. */
 export function getPendingConfirmation(): PendingConfirmationInfo | null {
   const [id, entry] = [...pending.entries()][0] ?? [];
   if (id === undefined || entry === undefined) return null;
