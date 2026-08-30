@@ -1,14 +1,19 @@
 /**
- * ALWAYS_CONFIRM is for actions that are irreversible AND outward-facing —
+ * ALWAYS_CONFIRM is for actions that are irreversible AND outward-facing --
  * the consequence leaves this machine and reaches another person or
  * institution. It is the one tier `auto` does not skip, and nothing may
  * escalate past it.
+ *
+ * `ask` is the most conservative mode: it pauses on every tier, including
+ * READ, so even a lookup needs a nod first. `assist` drops READ from its
+ * pause list -- it can look things up freely, but still confirms anything
+ * that writes or changes state. `auto` only pauses on ALWAYS_CONFIRM.
  */
 export type ToolTier = 'READ' | 'SAFE_WRITE' | 'CONSEQUENTIAL' | 'ALWAYS_CONFIRM';
 export type AiMode = 'ask' | 'assist' | 'auto';
 
 const PAUSE_TIERS: Record<AiMode, ToolTier[]> = {
-  ask: ['SAFE_WRITE', 'CONSEQUENTIAL', 'ALWAYS_CONFIRM'],
+  ask: ['READ', 'SAFE_WRITE', 'CONSEQUENTIAL', 'ALWAYS_CONFIRM'],
   assist: ['SAFE_WRITE', 'CONSEQUENTIAL', 'ALWAYS_CONFIRM'],
   auto: ['ALWAYS_CONFIRM'],
 };
