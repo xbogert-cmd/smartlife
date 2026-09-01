@@ -15,12 +15,14 @@ export function DueSoon({
     <Panel title={title}>
       {items.length === 0 ? (
         <PanelRow>
-          <span style={{ color: 'var(--color-text-muted)' }}>{emptyText}</span>
+          <span className="block px-4 py-2.5" style={{ color: 'var(--color-text-muted)' }}>
+            {emptyText}
+          </span>
         </PanelRow>
       ) : (
         items.map((item) => (
           <PanelRow key={item.id}>
-            <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
+            <div className="flex w-full min-w-0 items-center justify-between gap-3 px-4 py-2.5">
               <div className="flex min-w-0 flex-col">
                 <span style={{ color: 'var(--color-text)' }}>{item.name}</span>
                 <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>

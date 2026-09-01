@@ -41,7 +41,7 @@ describe('Sidebar icons', () => {
   it('renders exactly one icon per nav section', () => {
     renderSidebar();
     const nav = screen.getByRole('navigation');
-    const icons = nav.querySelectorAll('svg');
+    const icons = nav.querySelectorAll('a svg');
     expect(icons.length).toBe(NAV_SECTIONS.length);
   });
 });

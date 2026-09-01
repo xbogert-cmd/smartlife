@@ -5,6 +5,7 @@ import { ModelPicker } from './ModelPicker';
 import { getSectionTheme } from '../nav/sectionThemes';
 
 const SUGGESTIONS = ["What's due this week?", "Summarize today's readings", 'Add a study block'];
+const AI_THEME = getSectionTheme('ai');
 
 export interface ChatPanelProps {
   messages: ChatMessage[];
@@ -106,7 +107,7 @@ export function ChatPanel({
       <div ref={scrollRef} className="flex flex-1 flex-col gap-3 overflow-auto p-6">
         {messages.length === 0 && !statusLabel && !pendingConfirm ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-4">
-            <div className="h-11 w-11 flex-shrink-0 rounded-xl" style={{ background: getSectionTheme('ai').gradient }} />
+            <div className="h-11 w-11 flex-shrink-0 rounded-xl" style={{ background: AI_THEME.gradient }} />
             <p className="text-base font-semibold" style={{ color: 'var(--color-text)' }}>
               What can I help with?
             </p>
@@ -151,7 +152,7 @@ export function ChatPanel({
                       borderRadius: message.role === 'user' ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
                       boxShadow: '0 2px 6px rgba(0, 0, 0, 0.15)',
                       whiteSpace: 'pre-wrap',
-                      backgroundColor: message.role === 'user' ? getSectionTheme('ai').accent : 'var(--color-surface)',
+                      backgroundColor: message.role === 'user' ? AI_THEME.accent : 'var(--color-surface)',
                       color: message.role === 'user' ? '#ffffff' : 'var(--color-text)',
                       border: message.role === 'assistant' ? '1px solid var(--color-border)' : undefined,
                     }}
@@ -212,9 +213,9 @@ export function ChatPanel({
               </button>
             </span>
           ))}
-          {attachError && <span style={{ color: '#EF4444', fontSize: 12 }}>{attachError}</span>}
+          {attachError && <span style={{ color: 'var(--color-danger)', fontSize: 12 }}>{attachError}</span>}
           {voiceError && (
-            <span role="alert" style={{ color: '#EF4444', fontSize: 12 }}>
+            <span role="alert" style={{ color: 'var(--color-danger)', fontSize: 12 }}>
               {voiceError}
             </span>
           )}
@@ -233,7 +234,7 @@ export function ChatPanel({
               disabled={!isRecording && sending}
               className="flex-shrink-0 rounded-xl px-3 py-1.5 text-sm"
               style={{
-                backgroundColor: isRecording ? '#EF4444' : 'transparent',
+                backgroundColor: isRecording ? 'var(--color-danger)' : 'transparent',
                 color: isRecording ? '#ffffff' : 'var(--color-text)',
               }}
             >

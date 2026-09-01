@@ -32,7 +32,7 @@ function Row({ item }: { item: TodayItem }): React.JSX.Element {
     </>
   );
 
-  const className = 'flex min-w-0 flex-1 items-center gap-3';
+  const className = 'flex w-full min-w-0 items-center gap-3 px-4 py-2.5';
 
   // Only due items have somewhere to go. An event's own surface is the
   // calendar week grid, which has no per-event route.
@@ -50,7 +50,9 @@ export function TodayPanel({ items }: { items: TodayItem[] }): React.JSX.Element
     <Panel title="Today">
       {items.length === 0 ? (
         <PanelRow>
-          <span style={{ color: 'var(--color-text-muted)' }}>Nothing scheduled today.</span>
+          <span className="block px-4 py-2.5" style={{ color: 'var(--color-text-muted)' }}>
+            Nothing scheduled today.
+          </span>
         </PanelRow>
       ) : (
         items.map((item) => (

@@ -20,7 +20,7 @@ export function NeedsAttention({ items }: { items: UpcomingAssignment[] }): Reac
         const color = severity === 'critical' ? 'var(--color-danger)' : 'var(--color-warning)';
         return (
           <PanelRow key={item.id}>
-            <Link to={`/assignment/${item.id}`} data-severity={severity} className="flex min-w-0 flex-1 items-center gap-3">
+            <Link to={`/assignment/${item.id}`} data-severity={severity} className="flex w-full min-w-0 items-center gap-3 px-4 py-2.5">
               <span aria-hidden="true" className="h-1.5 w-1.5 flex-shrink-0 rounded-full" style={{ backgroundColor: color }} />
               <div className="flex min-w-0 flex-1 flex-col">
                 <span style={{ color: 'var(--color-text)' }}>{item.name}</span>

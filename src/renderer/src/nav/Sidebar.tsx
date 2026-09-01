@@ -60,7 +60,7 @@ export function Sidebar({ aiOpen, onToggleAi, hasPendingConfirmation }: SidebarP
             className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors hover:opacity-80"
             style={({ isActive }) => ({
               backgroundColor: isActive ? `color-mix(in srgb, ${theme.accent} 16%, transparent)` : 'transparent',
-              color: isActive ? `color-mix(in srgb, ${theme.accent} 75%, white)` : 'var(--color-text-muted)',
+              color: isActive ? `color-mix(in srgb, ${theme.accent} 50%, var(--color-text))` : 'var(--color-text-muted)',
             })}
           >
             {({ isActive }) => (
@@ -105,7 +105,7 @@ export function Sidebar({ aiOpen, onToggleAi, hasPendingConfirmation }: SidebarP
             data-testid="pending-confirmation-badge"
             aria-label="Waiting for your approval"
             className="absolute right-2 top-2 h-2 w-2 rounded-full"
-            style={{ backgroundColor: '#EF4444' }}
+            style={{ backgroundColor: 'var(--color-danger)' }}
           />
         )}
       </button>
