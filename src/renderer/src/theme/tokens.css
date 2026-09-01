@@ -8,6 +8,7 @@
 [data-theme="dark"] {
   --color-bg: #0b0b0d;
   --color-surface: #17171a;
+  --color-sidebar-bg: #151517;
   --color-border: #27272a;
   --color-text: #f4f4f5;
   --color-text-muted: #a1a1aa;
@@ -16,6 +17,7 @@
 [data-theme="light"] {
   --color-bg: #f7f7f8;
   --color-surface: #ffffff;
+  --color-sidebar-bg: #f0f0f2;
   --color-border: #e4e4e7;
   --color-text: #18181b;
   --color-text-muted: #71717a;

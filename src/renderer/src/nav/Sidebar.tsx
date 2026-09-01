@@ -1,4 +1,18 @@
 import { NavLink } from 'react-router-dom';
+import {
+  Home as HomeIcon,
+  Sparkles,
+  Calendar,
+  GraduationCap,
+  Globe,
+  CheckSquare,
+  FileText,
+  Target,
+  Folder,
+  Search,
+  Settings as SettingsIcon,
+  type LucideIcon,
+} from 'lucide-react';
 import { NAV_SECTIONS } from './sections';
 import { getSectionTheme } from './sectionThemes';
 
@@ -8,6 +22,20 @@ interface SidebarProps {
   hasPendingConfirmation: boolean;
 }
 
+const ICONS: Record<string, LucideIcon> = {
+  home: HomeIcon,
+  ai: Sparkles,
+  calendar: Calendar,
+  school: GraduationCap,
+  browser: Globe,
+  tasks: CheckSquare,
+  notes: FileText,
+  goals: Target,
+  files: Folder,
+  search: Search,
+  settings: SettingsIcon,
+};
+
 export function Sidebar({ aiOpen, onToggleAi, hasPendingConfirmation }: SidebarProps) {
   return (
     <nav
@@ -15,26 +43,39 @@ export function Sidebar({ aiOpen, onToggleAi, hasPendingConfirmation }: SidebarP
       // Clears the traffic-light buttons -- src/main/index.ts sets
       // trafficLightPosition: { x: 20, y: 20 } explicitly, so this number is
       // a deliberate match to that, not a guess at the OS default.
-      style={{ borderColor: 'var(--color-border)', paddingTop: 44 }}
+      style={{
+        borderColor: 'var(--color-border)',
+        backgroundColor: 'var(--color-sidebar-bg)',
+        paddingTop: 44,
+      }}
     >
       {NAV_SECTIONS.map((section) => {
         const theme = getSectionTheme(section.slug);
+        const Icon = ICONS[section.slug] ?? HomeIcon;
         return (
           <NavLink
             key={section.slug}
             to={section.path}
             end={section.path === '/'}
-            className={({ isActive }) =>
-              `rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                isActive ? 'text-white' : 'hover:opacity-80'
-              }`
-            }
+            className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors hover:opacity-80"
             style={({ isActive }) => ({
-              backgroundColor: isActive ? theme.accent : 'transparent',
-              color: isActive ? '#ffffff' : 'var(--color-text-muted)',
+              backgroundColor: isActive ? `color-mix(in srgb, ${theme.accent} 16%, transparent)` : 'transparent',
+              color: isActive ? `color-mix(in srgb, ${theme.accent} 75%, white)` : 'var(--color-text-muted)',
             })}
           >
-            {section.label}
+            {({ isActive }) => (
+              <>
+                <Icon
+                  size={16}
+                  aria-hidden="true"
+                  style={{
+                    flexShrink: 0,
+                    color: isActive ? theme.accent : `color-mix(in srgb, ${theme.accent} 50%, transparent)`,
+                  }}
+                />
+                {section.label}
+              </>
+            )}
           </NavLink>
         );
       })}

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
+import { NAV_SECTIONS } from './sections';
 
 function renderSidebar(props: Partial<Parameters<typeof Sidebar>[0]> = {}) {
   render(
@@ -33,5 +34,14 @@ describe('Sidebar traffic-light clearance', () => {
     renderSidebar();
     const nav = screen.getByRole('navigation');
     expect(nav.style.paddingTop).toBe('44px');
+  });
+});
+
+describe('Sidebar icons', () => {
+  it('renders exactly one icon per nav section', () => {
+    renderSidebar();
+    const nav = screen.getByRole('navigation');
+    const icons = nav.querySelectorAll('svg');
+    expect(icons.length).toBe(NAV_SECTIONS.length);
   });
 });

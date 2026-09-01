@@ -16,6 +16,7 @@
     "@anthropic-ai/sdk": "^0.117.1",
     "@google/genai": "^2.18.0",
     "better-sqlite3": "^11.5.0",
+    "lucide-react": "^1.39.0",
     "mammoth": "^1.12.1",
     "pdfjs-dist": "^6.2.108"
   },
