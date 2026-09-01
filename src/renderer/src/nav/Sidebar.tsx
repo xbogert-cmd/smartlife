@@ -10,7 +10,13 @@ interface SidebarProps {
 
 export function Sidebar({ aiOpen, onToggleAi, hasPendingConfirmation }: SidebarProps) {
   return (
-    <nav className="flex w-56 flex-shrink-0 flex-col gap-1 border-r p-3" style={{ borderColor: 'var(--color-border)' }}>
+    <nav
+      className="flex w-56 flex-shrink-0 flex-col gap-1 border-r p-3"
+      // Clears the traffic-light buttons -- src/main/index.ts sets
+      // trafficLightPosition: { x: 20, y: 20 } explicitly, so this number is
+      // a deliberate match to that, not a guess at the OS default.
+      style={{ borderColor: 'var(--color-border)', paddingTop: 44 }}
+    >
       {NAV_SECTIONS.map((section) => {
         const theme = getSectionTheme(section.slug);
         return (

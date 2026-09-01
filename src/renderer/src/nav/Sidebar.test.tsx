@@ -27,3 +27,11 @@ describe('Sidebar pending-confirmation badge', () => {
     expect(screen.queryByTestId('pending-confirmation-badge')).toBeNull();
   });
 });
+
+describe('Sidebar traffic-light clearance', () => {
+  it('reserves top padding so the nav list clears the macOS traffic-light buttons', () => {
+    renderSidebar();
+    const nav = screen.getByRole('navigation');
+    expect(nav.style.paddingTop).toBe('44px');
+  });
+});

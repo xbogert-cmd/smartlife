@@ -48,6 +48,11 @@ if (!gotLock) {
       minWidth: 900,
       minHeight: 600,
       titleBarStyle: 'hiddenInset',
+      // Explicit, not the OS default -- Sidebar.tsx's paddingTop below reserves
+      // space for exactly this position, so the two can never silently drift
+      // apart the way "leave it at the OS default and hope the CSS guess is
+      // still right" would.
+      trafficLightPosition: { x: 20, y: 20 },
       show: false,
       webPreferences: {
         preload: join(__dirname, '../preload/index.js'),
