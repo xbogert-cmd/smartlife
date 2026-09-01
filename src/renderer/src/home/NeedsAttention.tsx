@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
-import { formatDue } from '../school/formatters';
-import { SCHOOL_ACCENT, type UpcomingAssignment } from '../school/types';
+import { formatDue, overdueSeverity } from '../school/formatters';
+import { type UpcomingAssignment } from '../school/types';
+import { Panel, PanelRow } from '../ui/Panel';
 
 /**
  * Past-due, unsubmitted work.
@@ -13,31 +14,27 @@ export function NeedsAttention({ items }: { items: UpcomingAssignment[] }): Reac
   if (items.length === 0) return null;
 
   return (
-    <section className="flex flex-col gap-2">
-      <h2 className="text-sm font-semibold uppercase tracking-wide" style={{ color: SCHOOL_ACCENT }}>
-        Needs attention
-      </h2>
-      <ul className="flex flex-col gap-1.5">
-        {items.map((item) => (
-          <li key={item.id}>
-            <Link
-              to={`/assignment/${item.id}`}
-              className="flex items-center justify-between rounded-lg px-3 py-2"
-              style={{ backgroundColor: 'var(--color-surface)', border: `1px solid ${SCHOOL_ACCENT}` }}
-            >
-              <div className="flex min-w-0 flex-col">
+    <Panel title="Needs attention">
+      {items.map((item) => {
+        const severity = overdueSeverity(item.dueAt);
+        const color = severity === 'critical' ? 'var(--color-danger)' : 'var(--color-warning)';
+        return (
+          <PanelRow key={item.id}>
+            <Link to={`/assignment/${item.id}`} data-severity={severity} className="flex min-w-0 flex-1 items-center gap-3">
+              <span aria-hidden="true" className="h-1.5 w-1.5 flex-shrink-0 rounded-full" style={{ backgroundColor: color }} />
+              <div className="flex min-w-0 flex-1 flex-col">
                 <span style={{ color: 'var(--color-text)' }}>{item.name}</span>
                 <span className="truncate text-xs" style={{ color: 'var(--color-text-muted)' }}>
                   {item.courseName}
                 </span>
               </div>
-              <span className="ml-3 flex-shrink-0 text-xs" style={{ color: SCHOOL_ACCENT }}>
+              <span className="ml-3 flex-shrink-0 text-xs font-medium" style={{ color }}>
                 {formatDue(item.dueAt)}
               </span>
             </Link>
-          </li>
-        ))}
-      </ul>
-    </section>
+          </PanelRow>
+        );
+      })}
+    </Panel>
   );
 }

@@ -1,5 +1,6 @@
 import { formatDue } from './formatters';
 import { SCHOOL_ACCENT, type UpcomingAssignment } from './types';
+import { Panel, PanelRow } from '../ui/Panel';
 
 export function DueSoon({
   items,
@@ -11,36 +12,28 @@ export function DueSoon({
   emptyText?: string;
 }): React.JSX.Element {
   return (
-    <section className="flex flex-col gap-2">
-      <h2 className="text-sm font-semibold uppercase tracking-wide" style={{ color: 'var(--color-text-muted)' }}>
-        {title}
-      </h2>
+    <Panel title={title}>
       {items.length === 0 ? (
-        <p style={{ color: 'var(--color-text-muted)' }}>{emptyText}</p>
+        <PanelRow>
+          <span style={{ color: 'var(--color-text-muted)' }}>{emptyText}</span>
+        </PanelRow>
       ) : (
-        <ul className="flex flex-col gap-1.5">
-          {items.map((item) => (
-            <li
-              key={item.id}
-              className="flex items-center justify-between rounded-lg px-3 py-2"
-              style={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
-            >
-              <div className="flex flex-col">
+        items.map((item) => (
+          <PanelRow key={item.id}>
+            <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
+              <div className="flex min-w-0 flex-col">
                 <span style={{ color: 'var(--color-text)' }}>{item.name}</span>
                 <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
                   {item.courseName}
                 </span>
               </div>
-              <span
-                className="text-xs"
-                style={{ color: item.hasSubmitted ? 'var(--color-text-muted)' : SCHOOL_ACCENT }}
-              >
+              <span className="flex-shrink-0 text-xs" style={{ color: item.hasSubmitted ? 'var(--color-text-muted)' : SCHOOL_ACCENT }}>
                 {item.hasSubmitted ? 'submitted' : formatDue(item.dueAt)}
               </span>
-            </li>
-          ))}
-        </ul>
+            </div>
+          </PanelRow>
+        ))
       )}
-    </section>
+    </Panel>
   );
 }

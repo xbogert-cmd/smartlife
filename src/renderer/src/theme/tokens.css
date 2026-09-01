@@ -9,18 +9,24 @@
   --color-bg: #0b0b0d;
   --color-surface: #17171a;
   --color-sidebar-bg: #151517;
+  --color-panel-bg: #151517;
   --color-border: #27272a;
   --color-text: #f4f4f5;
   --color-text-muted: #a1a1aa;
+  --color-danger: #f87171;
+  --color-warning: #fb923c;
 }
 
 [data-theme="light"] {
   --color-bg: #f7f7f8;
   --color-surface: #ffffff;
   --color-sidebar-bg: #f0f0f2;
+  --color-panel-bg: #f0f0f2;
   --color-border: #e4e4e7;
   --color-text: #18181b;
   --color-text-muted: #71717a;
+  --color-danger: #dc2626;
+  --color-warning: #ea580c;
 }
 
 body {
@@ -28,4 +34,15 @@ body {
   color: var(--color-text);
   font-family: var(--font-shell);
   margin: 0;
+}
+
+/* Hairline between panel rows -- only between rows, not above the first or
+   below the last, via the classic adjacent-sibling pattern. Deliberately not
+   Tailwind's divide-y utility: this project's --color-* tokens are plain CSS
+   custom properties (see the :root block above), never registered into
+   Tailwind's theme, so every color in this codebase is applied via inline
+   style rather than a Tailwind color class -- this rule follows that same
+   convention instead of introducing the one exception. */
+.panel-rows > * + * {
+  border-top: 1px solid var(--color-border);
 }

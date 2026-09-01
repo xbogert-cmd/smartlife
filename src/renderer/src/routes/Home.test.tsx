@@ -166,7 +166,7 @@ describe('Home route', () => {
     ]);
     renderHome();
     const todayHeading = await screen.findByText('Today');
-    const todaySection = todayHeading.closest('section');
+    const todaySection = todayHeading.closest<HTMLElement>('.rounded-xl');
     if (!todaySection) throw new Error('Today section not found');
     // The item is unsubmitted and past due, so it legitimately also shows
     // up in Needs Attention -- scope the assertion to the Today section
