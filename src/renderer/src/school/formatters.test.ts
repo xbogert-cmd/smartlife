@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatDue, formatRelative } from './formatters';
+import { formatDue, formatRelative, overdueSeverity } from './formatters';
 
 const NOW = new Date('2026-08-18T12:00:00Z');
 
@@ -53,5 +53,24 @@ describe('formatDue', () => {
 
   it('counts multiple days overdue', () => {
     expect(formatDue('2026-08-15T12:00:00Z', NOW)).toBe('3 days overdue');
+  });
+});
+
+describe('overdueSeverity', () => {
+  it('is critical for something overdue by less than 2 days', () => {
+    expect(overdueSeverity('2026-08-18T11:55:00Z', NOW)).toBe('critical');
+    expect(overdueSeverity('2026-08-17T12:00:00Z', NOW)).toBe('critical'); // exactly 1 day
+  });
+
+  it('is moderate at exactly 2 days overdue', () => {
+    expect(overdueSeverity('2026-08-16T12:00:00Z', NOW)).toBe('moderate');
+  });
+
+  it('is moderate for something overdue by many days', () => {
+    expect(overdueSeverity('2026-08-01T12:00:00Z', NOW)).toBe('moderate');
+  });
+
+  it('is critical for something overdue by a single minute', () => {
+    expect(overdueSeverity('2026-08-18T11:59:00Z', NOW)).toBe('critical');
   });
 });

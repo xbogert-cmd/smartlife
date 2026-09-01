@@ -28,3 +28,13 @@ export function formatDue(iso: string, now: Date = new Date()): string {
   const days = Math.floor(remaining / DAY);
   return days === 1 ? 'due in 1 day' : `due in ${days} days`;
 }
+
+/** Only meaningful for something already overdue -- callers that only ever
+ *  pass past-due items (NeedsAttention.tsx) don't need to check first, but
+ *  passing a not-yet-due dueAt here isn't guarded against, since a negative
+ *  `elapsed` is just always < 2 * DAY and reads as 'critical', which is
+ *  harmless for a caller that would never show it in the first place. */
+export function overdueSeverity(dueAt: string, now: Date = new Date()): 'critical' | 'moderate' {
+  const elapsed = now.getTime() - Date.parse(dueAt);
+  return elapsed < 2 * DAY ? 'critical' : 'moderate';
+}
