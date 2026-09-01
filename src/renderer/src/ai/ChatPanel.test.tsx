@@ -130,6 +130,61 @@ describe('ChatPanel switch notices', () => {
   });
 });
 
+describe('ChatPanel empty state', () => {
+  const emptyProps = {
+    messages: [] as ChatMessage[],
+    statusLabel: null,
+    pendingConfirm: null,
+    sending: false,
+    apiKeyConfigured: true,
+    input: '',
+    onInputChange: vi.fn(),
+    onSubmit: vi.fn(),
+    onRespondToConfirm: vi.fn(),
+    attachments: [] as { id: string; name: string; kind: 'text' | 'image' }[],
+    attachError: null as string | null,
+    onAddAttachment: vi.fn(),
+    onRemoveAttachment: vi.fn(),
+    voiceModeOn: false,
+    onToggleVoiceMode: vi.fn(),
+    isRecording: false,
+    onToggleRecording: vi.fn(),
+    voiceError: null as string | null,
+  };
+
+  it('shows a greeting and suggestion chips when there is nothing in the transcript yet', () => {
+    render(
+      <MemoryRouter>
+        <ChatPanel {...emptyProps} />
+      </MemoryRouter>
+    );
+    expect(screen.getByText('What can I help with?')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: "What's due this week?" })).toBeInTheDocument();
+  });
+
+  it('fills the input with a suggestion when a chip is clicked, without sending it', async () => {
+    const onInputChange = vi.fn();
+    const onSubmit = vi.fn();
+    render(
+      <MemoryRouter>
+        <ChatPanel {...emptyProps} onInputChange={onInputChange} onSubmit={onSubmit} />
+      </MemoryRouter>
+    );
+    await userEvent.click(screen.getByRole('button', { name: "What's due this week?" }));
+    expect(onInputChange).toHaveBeenCalledWith("What's due this week?");
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('does not show the empty state once there are messages', () => {
+    render(
+      <MemoryRouter>
+        <ChatPanel {...emptyProps} messages={[{ id: '1', role: 'user', text: 'hi' }]} />
+      </MemoryRouter>
+    );
+    expect(screen.queryByText('What can I help with?')).not.toBeInTheDocument();
+  });
+});
+
 describe('ChatPanel attachments', () => {
   const baseProps = {
     messages: [],

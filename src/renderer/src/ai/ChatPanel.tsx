@@ -2,6 +2,9 @@ import { useLayoutEffect, useRef, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { ChatMessage, PendingAttachment, PendingConfirm } from './useConversation';
 import { ModelPicker } from './ModelPicker';
+import { getSectionTheme } from '../nav/sectionThemes';
+
+const SUGGESTIONS = ["What's due this week?", "Summarize today's readings", 'Add a study block'];
 
 export interface ChatPanelProps {
   messages: ChatMessage[];
@@ -101,68 +104,93 @@ export function ChatPanel({
         </button>
       </div>
       <div ref={scrollRef} className="flex flex-1 flex-col gap-3 overflow-auto p-6">
-        {messages.map((message) =>
-          message.kind === 'switch-notice' ? (
-            <div
-              key={message.id}
-              style={{ alignSelf: 'center', color: 'var(--color-text-muted)', fontSize: 13, textAlign: 'center' }}
-            >
-              {message.text}
-            </div>
-          ) : (
-            <div
-              key={message.id}
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignSelf: message.role === 'user' ? 'flex-end' : 'flex-start',
-                alignItems: message.role === 'user' ? 'flex-end' : 'flex-start',
-                maxWidth: '70%',
-              }}
-            >
-              <div
-                style={{
-                  padding: '8px 12px',
-                  borderRadius: 8,
-                  whiteSpace: 'pre-wrap',
-                  backgroundColor: message.role === 'user' ? '#22D3EE' : 'var(--color-surface)',
-                  color: message.role === 'user' ? '#ffffff' : 'var(--color-text)',
-                  border: message.role === 'assistant' ? '1px solid var(--color-border)' : undefined,
-                }}
-              >
-                {message.text}
-              </div>
-              {message.role === 'assistant' && message.answeredBy && (
-                <div style={{ color: 'var(--color-text-muted)', fontSize: 11, marginTop: 2 }}>{message.answeredBy}</div>
-              )}
-            </div>
-          )
-        )}
-        {statusLabel && <div style={{ color: 'var(--color-text-muted)', fontSize: 13 }}>{statusLabel}…</div>}
-        {pendingConfirm && (
-          <div
-            style={{ border: '1px solid var(--color-border)', borderRadius: 8, padding: 12, backgroundColor: 'var(--color-surface)' }}
-          >
-            <p style={{ color: 'var(--color-text)', marginBottom: 8, whiteSpace: 'pre-wrap' }}>{pendingConfirm.description}</p>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => onRespondToConfirm(true)}
-                className="rounded-md px-3 py-1.5 text-sm"
-                style={{ backgroundColor: 'var(--color-text)', color: 'var(--color-bg)', border: '1px solid var(--color-border)' }}
-              >
-                Approve
-              </button>
-              <button
-                type="button"
-                onClick={() => onRespondToConfirm(false)}
-                className="rounded-md px-3 py-1.5 text-sm"
-                style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text)', border: '1px solid var(--color-border)' }}
-              >
-                Deny
-              </button>
+        {messages.length === 0 && !statusLabel && !pendingConfirm ? (
+          <div className="flex flex-1 flex-col items-center justify-center gap-4">
+            <div className="h-11 w-11 flex-shrink-0 rounded-xl" style={{ background: getSectionTheme('ai').gradient }} />
+            <p className="text-base font-semibold" style={{ color: 'var(--color-text)' }}>
+              What can I help with?
+            </p>
+            <div className="flex flex-wrap justify-center gap-2" style={{ maxWidth: 380 }}>
+              {SUGGESTIONS.map((suggestion) => (
+                <button
+                  key={suggestion}
+                  type="button"
+                  onClick={() => onInputChange(suggestion)}
+                  className="rounded-full px-3.5 py-1.5 text-xs"
+                  style={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)', color: 'var(--color-text-muted)' }}
+                >
+                  {suggestion}
+                </button>
+              ))}
             </div>
           </div>
+        ) : (
+          <>
+            {messages.map((message) =>
+              message.kind === 'switch-notice' ? (
+                <div
+                  key={message.id}
+                  style={{ alignSelf: 'center', color: 'var(--color-text-muted)', fontSize: 13, textAlign: 'center' }}
+                >
+                  {message.text}
+                </div>
+              ) : (
+                <div
+                  key={message.id}
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignSelf: message.role === 'user' ? 'flex-end' : 'flex-start',
+                    alignItems: message.role === 'user' ? 'flex-end' : 'flex-start',
+                    maxWidth: '70%',
+                  }}
+                >
+                  <div
+                    style={{
+                      padding: '8px 12px',
+                      borderRadius: message.role === 'user' ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
+                      boxShadow: '0 2px 6px rgba(0, 0, 0, 0.15)',
+                      whiteSpace: 'pre-wrap',
+                      backgroundColor: message.role === 'user' ? getSectionTheme('ai').accent : 'var(--color-surface)',
+                      color: message.role === 'user' ? '#ffffff' : 'var(--color-text)',
+                      border: message.role === 'assistant' ? '1px solid var(--color-border)' : undefined,
+                    }}
+                  >
+                    {message.text}
+                  </div>
+                  {message.role === 'assistant' && message.answeredBy && (
+                    <div style={{ color: 'var(--color-text-muted)', fontSize: 11, marginTop: 2 }}>{message.answeredBy}</div>
+                  )}
+                </div>
+              )
+            )}
+            {statusLabel && <div style={{ color: 'var(--color-text-muted)', fontSize: 13 }}>{statusLabel}…</div>}
+            {pendingConfirm && (
+              <div
+                style={{ border: '1px solid var(--color-border)', borderRadius: 8, padding: 12, backgroundColor: 'var(--color-surface)' }}
+              >
+                <p style={{ color: 'var(--color-text)', marginBottom: 8, whiteSpace: 'pre-wrap' }}>{pendingConfirm.description}</p>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onRespondToConfirm(true)}
+                    className="rounded-md px-3 py-1.5 text-sm"
+                    style={{ backgroundColor: 'var(--color-text)', color: 'var(--color-bg)', border: '1px solid var(--color-border)' }}
+                  >
+                    Approve
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onRespondToConfirm(false)}
+                    className="rounded-md px-3 py-1.5 text-sm"
+                    style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text)', border: '1px solid var(--color-border)' }}
+                  >
+                    Deny
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
       {(attachments.length > 0 || attachError || voiceError) && (
@@ -192,47 +220,51 @@ export function ChatPanel({
           )}
         </div>
       )}
-      <form onSubmit={onSubmit} className="flex gap-2 p-4" style={{ borderTop: '1px solid var(--color-border)' }}>
-        {voiceModeOn && (
+      <form onSubmit={onSubmit} className="p-4" style={{ borderTop: '1px solid var(--color-border)' }}>
+        <div
+          className="flex items-center gap-1.5 rounded-2xl px-2 py-1.5"
+          style={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
+        >
+          {voiceModeOn && (
+            <button
+              type="button"
+              onClick={onToggleRecording}
+              aria-label={isRecording ? 'Stop voice input' : 'Start voice input'}
+              disabled={!isRecording && sending}
+              className="flex-shrink-0 rounded-xl px-3 py-1.5 text-sm"
+              style={{
+                backgroundColor: isRecording ? '#EF4444' : 'transparent',
+                color: isRecording ? '#ffffff' : 'var(--color-text)',
+              }}
+            >
+              {isRecording ? '● Stop' : '🎙'}
+            </button>
+          )}
           <button
             type="button"
-            onClick={onToggleRecording}
-            aria-label={isRecording ? 'Stop voice input' : 'Start voice input'}
-            disabled={!isRecording && sending}
-            className="rounded-md px-3 py-2 text-sm"
-            style={{
-              backgroundColor: isRecording ? '#EF4444' : 'var(--color-surface)',
-              color: isRecording ? '#ffffff' : 'var(--color-text)',
-              border: '1px solid var(--color-border)',
-            }}
+            onClick={onAddAttachment}
+            aria-label="Attach a file"
+            className="flex-shrink-0 rounded-xl px-2.5 py-1.5 text-sm"
+            style={{ color: 'var(--color-text)' }}
           >
-            {isRecording ? '● Stop' : '🎙'}
+            Attach
           </button>
-        )}
-        <button
-          type="button"
-          onClick={onAddAttachment}
-          aria-label="Attach a file"
-          className="rounded-md px-3 py-2 text-sm"
-          style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text)', border: '1px solid var(--color-border)' }}
-        >
-          Attach
-        </button>
-        <input
-          value={input}
-          onChange={(event) => onInputChange(event.target.value)}
-          placeholder="Ask SmartLife…"
-          className="flex-1 rounded-md px-3 py-2 text-sm"
-          style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text)', border: '1px solid var(--color-border)' }}
-        />
-        <button
-          type="submit"
-          disabled={sending || !input.trim()}
-          className="rounded-md px-4 py-2 text-sm"
-          style={{ backgroundColor: 'var(--color-text)', color: 'var(--color-bg)', border: '1px solid var(--color-border)' }}
-        >
-          Send
-        </button>
+          <input
+            value={input}
+            onChange={(event) => onInputChange(event.target.value)}
+            placeholder="Ask SmartLife…"
+            className="flex-1 bg-transparent px-1 py-1.5 text-sm outline-none"
+            style={{ color: 'var(--color-text)' }}
+          />
+          <button
+            type="submit"
+            disabled={sending || !input.trim()}
+            className="flex-shrink-0 rounded-xl px-4 py-1.5 text-sm"
+            style={{ backgroundColor: 'var(--color-text)', color: 'var(--color-bg)' }}
+          >
+            Send
+          </button>
+        </div>
       </form>
     </div>
   );
