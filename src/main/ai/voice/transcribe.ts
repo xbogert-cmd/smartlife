@@ -58,7 +58,14 @@ export async function transcribeAudio(
     if (!text) return { ok: false, reason: "Couldn't hear anything in that recording." };
     return { ok: true, text };
   } catch (err) {
-    logError('voice:transcribe', err);
+    // Guard the logger too: transcribeAudio's contract is "never throw", and
+    // logError does a sync file write that can itself fail (read-only/full
+    // logs volume).
+    try {
+      logError('voice:transcribe', err);
+    } catch {
+      /* best effort */
+    }
     const stderrTail = (err as { stderr?: string }).stderr?.trim().split('\n').pop()?.trim();
     return {
       ok: false,

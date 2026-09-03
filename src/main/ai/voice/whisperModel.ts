@@ -62,7 +62,14 @@ export async function ensureWhisperModel(): Promise<ModelStatus> {
   }
   inFlight = download()
     .catch((err) => {
-      logError('voice:model-download', err);
+      // logError must not shadow the failure it's reporting -- a throwing
+      // sync file write here would skip `lastFailed = true` and the next
+      // call would retry instead of surfacing 'error'.
+      try {
+        logError('voice:model-download', err);
+      } catch {
+        /* best effort */
+      }
       lastFailed = true;
     })
     .finally(() => {
