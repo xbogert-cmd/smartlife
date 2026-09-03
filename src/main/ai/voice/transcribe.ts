@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import type Database from 'better-sqlite3';
+import { logError } from '../../log';
 import { ensureWhisperModel } from './whisperModel';
 import { whisperBinPath, whisperModelPath } from './whisperPaths';
 
@@ -41,24 +42,29 @@ export async function transcribeAudio(
     return { ok: false, reason: "Couldn't download the voice model. Check your connection and try again." };
   }
 
-  const dir = await mkdtemp(join(tmpdir(), 'smartlife-voice-'));
-  const wavPath = join(dir, 'audio.wav');
+  let dir: string | undefined;
   try {
+    dir = await mkdtemp(join(tmpdir(), 'smartlife-voice-'));
+    const wavPath = join(dir, 'audio.wav');
     await writeFile(wavPath, Buffer.from(data, 'base64'));
     const { stdout } = await run(whisperBinPath(), whisperArgs(whisperModelPath(), wavPath), {
       timeout: 120_000,
       maxBuffer: 8 * 1024 * 1024,
     });
-    const text = stdout.replace(/\s+/g, ' ').trim();
+    // whisper.cpp with -nt emits non-speech markers ([BLANK_AUDIO], [MUSIC],
+    // [ Silence ]) as ordinary lines -- strip them before the "empty" check so
+    // a silent recording lands in the "couldn't hear anything" branch.
+    const text = stdout.replace(/\[[^\]]*\]/g, ' ').replace(/\s+/g, ' ').trim();
     if (!text) return { ok: false, reason: "Couldn't hear anything in that recording." };
     return { ok: true, text };
   } catch (err) {
+    logError('voice:transcribe', err);
     const stderrTail = (err as { stderr?: string }).stderr?.trim().split('\n').pop()?.trim();
     return {
       ok: false,
       reason: stderrTail ? `Voice transcription failed: ${stderrTail}` : 'Voice transcription failed.',
     };
   } finally {
-    await rm(dir, { recursive: true, force: true });
+    if (dir) await rm(dir, { recursive: true, force: true }).catch(() => {});
   }
 }

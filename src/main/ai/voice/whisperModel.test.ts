@@ -6,6 +6,8 @@ vi.mock('./whisperPaths', () => ({
   whisperModelPath: () => '/userdata/models/ggml-base.en.bin',
 }));
 
+vi.mock('../../log', () => ({ logError: vi.fn() }));
+
 const stat = vi.fn();
 const mkdir = vi.fn().mockResolvedValue(undefined);
 const rm = vi.fn().mockResolvedValue(undefined);
@@ -30,18 +32,34 @@ vi.mock('node:stream/promises', () => ({
 
 vi.mock('node:stream', () => ({ Readable: { fromWeb: (b: unknown) => ({ __webStream: b }) } }));
 
-function fileMissing(): void {
-  stat.mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
+const GOOD_SIZE = 142_000_000;
+
+// stat is consulted for two things now: fileReady(model) before/after a
+// download, and the post-pipeline stat(partial) integrity check. Keep the
+// mock path-aware so a "model missing, partial written" state is expressible.
+function fileMissing(partialSize = GOOD_SIZE): void {
+  stat.mockImplementation((p: string) =>
+    p.endsWith('.partial')
+      ? Promise.resolve({ isFile: () => true, size: partialSize })
+      : Promise.reject(Object.assign(new Error('ENOENT'), { code: 'ENOENT' })));
 }
 function filePresent(): void {
-  stat.mockResolvedValue({ isFile: () => true, size: 142_000_000 });
+  stat.mockResolvedValue({ isFile: () => true, size: GOOD_SIZE });
+}
+
+function okFetch() {
+  return vi.fn().mockResolvedValue({
+    ok: true,
+    body: {},
+    headers: { get: (h: string) => (h === 'content-length' ? String(GOOD_SIZE) : null) },
+  });
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
   vi.resetModules();
   pipeline.mockResolvedValue(undefined);
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, body: {} }));
+  vi.stubGlobal('fetch', okFetch());
 });
 
 afterEach(() => {
@@ -78,6 +96,17 @@ describe('ensureWhisperModel', () => {
     );
   });
 
+  it("returns 'ready' on the next call once the downloaded file has landed", async () => {
+    fileMissing();
+    const { ensureWhisperModel } = await import('./whisperModel');
+    await ensureWhisperModel();
+    await vi.waitFor(() => expect(rename).toHaveBeenCalled());
+    filePresent();
+    await vi.waitFor(async () => {
+      expect(await ensureWhisperModel()).toBe('ready');
+    });
+  });
+
   it("removes the .partial file and later returns 'error' when the download fails", async () => {
     fileMissing();
     pipeline.mockRejectedValue(new Error('socket hang up'));
@@ -97,6 +126,18 @@ describe('ensureWhisperModel', () => {
     // flag cleared by that successful call: the next one retries afresh
     expect(await ensureWhisperModel()).toBe('downloading');
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+  });
+
+  it("rejects an implausibly small download body and later returns 'error'", async () => {
+    fileMissing(500);
+    const { ensureWhisperModel } = await import('./whisperModel');
+
+    expect(await ensureWhisperModel()).toBe('downloading');
+    await vi.waitFor(() => expect(rm).toHaveBeenCalledWith('/userdata/models/ggml-base.en.bin.partial', { force: true }));
+    expect(rename).not.toHaveBeenCalled();
+    await vi.waitFor(async () => {
+      expect(await ensureWhisperModel()).toBe('error');
+    });
   });
 
   it("returns 'error' when fetch resolves non-ok", async () => {

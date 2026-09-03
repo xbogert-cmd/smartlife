@@ -3,6 +3,7 @@ import { mkdir, rename, rm, stat } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
+import { logError } from '../../log';
 import { WHISPER_MODEL_URL, whisperModelPath } from './whisperPaths';
 
 export type ModelStatus = 'ready' | 'downloading' | 'error';
@@ -30,6 +31,15 @@ async function download(): Promise<void> {
       Readable.fromWeb(res.body as unknown as Parameters<typeof Readable.fromWeb>[0]),
       createWriteStream(partial),
     );
+    // res.ok can't catch a captive-portal 200 that hands back an HTML login
+    // page instead of the weights. Sanity-check the bytes on disk before we
+    // commit them -- a thrown error flows through the same cleanup + retry
+    // path as any other download failure.
+    const { size } = await stat(partial);
+    const expected = Number(res.headers.get('content-length')) || 0;
+    if (size < 1_000_000 || (expected && size !== expected)) {
+      throw new Error(`model download looks wrong: ${size} bytes${expected ? ` (expected ${expected})` : ''}`);
+    }
     await rename(partial, dest);
   } catch (err) {
     await rm(partial, { force: true });
@@ -51,7 +61,8 @@ export async function ensureWhisperModel(): Promise<ModelStatus> {
     return 'error';
   }
   inFlight = download()
-    .catch(() => {
+    .catch((err) => {
+      logError('voice:model-download', err);
       lastFailed = true;
     })
     .finally(() => {

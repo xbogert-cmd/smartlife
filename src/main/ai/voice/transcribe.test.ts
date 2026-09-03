@@ -1,14 +1,11 @@
+// @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type Database from 'better-sqlite3';
 
 const execFile = vi.fn();
-// This repo's electron+vite test setup only surfaces a node: builtin mock to a
-// production `import { x } from 'node:...'` when a matching `default` object is
-// returned too (see pickAttachment.test.ts / submit.test.ts for the same dance).
-vi.mock('node:child_process', () => {
-  const impl = (...a: unknown[]): unknown => execFile(...a);
-  return { execFile: impl, default: { execFile: impl } };
-});
+vi.mock('node:child_process', () => ({
+  execFile: (...a: unknown[]): unknown => execFile(...a),
+}));
 
 const ensureWhisperModel = vi.fn();
 vi.mock('./whisperModel', () => ({ ensureWhisperModel: () => ensureWhisperModel() }));
@@ -18,17 +15,16 @@ vi.mock('./whisperPaths', () => ({
   whisperModelPath: () => '/models/ggml-base.en.bin',
 }));
 
+vi.mock('../../log', () => ({ logError: vi.fn() }));
+
 const mkdtemp = vi.fn().mockResolvedValue('/tmp/smartlife-voice-abc');
 const writeFile = vi.fn().mockResolvedValue(undefined);
 const rm = vi.fn().mockResolvedValue(undefined);
-vi.mock('node:fs/promises', () => {
-  const members = {
-    mkdtemp: (...a: unknown[]) => mkdtemp(...a),
-    writeFile: (...a: unknown[]) => writeFile(...a),
-    rm: (...a: unknown[]) => rm(...a),
-  };
-  return { ...members, default: members };
-});
+vi.mock('node:fs/promises', () => ({
+  mkdtemp: (...a: unknown[]) => mkdtemp(...a),
+  writeFile: (...a: unknown[]) => writeFile(...a),
+  rm: (...a: unknown[]) => rm(...a),
+}));
 
 // promisify(execFile) calls execFile(file, args, opts, cb). Drive cb from the
 // queued result so the production code can stay on the promise form.
@@ -99,6 +95,20 @@ describe('transcribeAudio', () => {
     const { transcribeAudio } = await import('./transcribe');
     const result = await transcribeAudio(db, 'base64', 'audio/wav');
     expect(result).toEqual({ ok: false, reason: "Couldn't hear anything in that recording." });
+  });
+
+  it('treats a whisper.cpp non-speech marker as an empty transcript', async () => {
+    execFileYields({ stdout: '[BLANK_AUDIO]' });
+    const { transcribeAudio } = await import('./transcribe');
+    const result = await transcribeAudio(db, 'base64', 'audio/wav');
+    expect(result).toEqual({ ok: false, reason: "Couldn't hear anything in that recording." });
+  });
+
+  it("collapses whisper.cpp's one-line-per-segment output into a single transcript", async () => {
+    execFileYields({ stdout: ' hello there\n how are you\n' });
+    const { transcribeAudio } = await import('./transcribe');
+    const result = await transcribeAudio(db, 'base64', 'audio/wav');
+    expect(result).toEqual({ ok: true, text: 'hello there how are you' });
   });
 
   it('returns a failure with the stderr tail when whisper-cli exits non-zero', async () => {
