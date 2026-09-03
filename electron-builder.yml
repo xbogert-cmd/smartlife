@@ -6,6 +6,9 @@ directories:
 files:
   - out/**/*
   - package.json
+extraResources:
+  - from: resources/whisper-cli
+    to: whisper-cli
 mac:
   category: public.app-category.productivity
   extendInfo:
