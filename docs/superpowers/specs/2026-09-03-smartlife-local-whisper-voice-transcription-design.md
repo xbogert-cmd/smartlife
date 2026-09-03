@@ -240,7 +240,21 @@ mock the boundary, assert result shapes).
   with `{ sampleRate: 16000 }` (extend the existing mock).
 - No test starts a real subprocess or hits the network.
 
-## Out of scope
+## As-built notes (deviations from the sketch above, all reviewed)
+
+- `whisperArgs` ships `['-m', m, '-f', w, '-np', '-nt']` — **no `-l en`**. `ggml-base.en.bin`
+  is English-only, so whisper.cpp fixes the language regardless; the flag was noise.
+- The scratch WAV goes in an `os.mkdtemp()` dir (mode 0700, removed with one `rm -rf` in a
+  guarded `finally`), not `app.getPath('temp')/smartlife-voice-<random>.wav` — a private dir
+  beats a guessable name in a world-readable location, and needs no `electron` mock in tests.
+- `transcribeAudio` strips bracketed non-speech markers (`[BLANK_AUDIO]`, `[MUSIC]`,
+  `[ Silence ]`) from stdout before the empty-transcript check — with `-nt`, whisper.cpp emits
+  those as ordinary lines, so without stripping a silent clip would be *sent* as `[BLANK_AUDIO]`.
+- `whisperModel.download()` sanity-checks the downloaded file (≥ 1 MB, and equal to
+  `content-length` when the header is present) before `rename` — a captive-portal HTTP 200 that
+  returns an HTML login page instead of the weights would otherwise be committed as "the model".
+- Download failures (`voice:model-download`) and transcription errors (`voice:transcribe`) are
+  written to `smartlife.log` via the existing `logError` helper rather than swallowed.
 
 - Any change to text-to-speech, the mic button, the voice-mode toggle, IPC,
   or preload beyond what §1 requires.
