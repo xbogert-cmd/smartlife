@@ -129,7 +129,10 @@ export function useVoice({ messages, sending, sendMessage }: UseVoiceParams) {
     window.speechSynthesis.cancel();
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const audioContext = new AudioContext();
+      // whisper.cpp only accepts 16 kHz mono; record at that rate so no
+      // resampling is needed anywhere. encodeWav already reads the rate off
+      // this context.
+      const audioContext = new AudioContext({ sampleRate: 16000 });
       const source = audioContext.createMediaStreamSource(stream);
       const processor = audioContext.createScriptProcessor(4096, 1, 1);
       const silentGain = audioContext.createGain();

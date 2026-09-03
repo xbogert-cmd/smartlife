@@ -25,9 +25,10 @@ class FakeMediaStreamAudioSourceNode {
 }
 
 const createdProcessors: FakeScriptProcessorNode[] = [];
+const audioContextOptions: Array<{ sampleRate?: number } | undefined> = [];
 
 class FakeAudioContext {
-  sampleRate = 48000;
+  sampleRate: number;
   destination = {};
   close = vi.fn().mockResolvedValue(undefined);
   createMediaStreamSource = vi.fn(() => new FakeMediaStreamAudioSourceNode());
@@ -37,6 +38,10 @@ class FakeAudioContext {
     return node;
   });
   createGain = vi.fn(() => new FakeGainNode());
+  constructor(options?: { sampleRate?: number }) {
+    audioContextOptions.push(options);
+    this.sampleRate = options?.sampleRate ?? 48000;
+  }
 }
 
 const fakeTrack = { stop: vi.fn() };
@@ -68,6 +73,7 @@ beforeEach(() => {
   });
   fakeTrack.stop.mockClear();
   createdProcessors.length = 0;
+  audioContextOptions.length = 0;
 });
 
 afterEach(() => {
@@ -207,7 +213,7 @@ describe('useVoice — recording and transcription', () => {
     expect(chunkId(12)).toBe('fmt ');
     expect(view.getUint16(20, true)).toBe(1); // PCM format
     expect(view.getUint16(22, true)).toBe(1); // mono
-    expect(view.getUint32(24, true)).toBe(48000); // FakeAudioContext's sampleRate
+    expect(view.getUint32(24, true)).toBe(16000); // the 16 kHz recording rate Whisper requires
     expect(view.getUint16(34, true)).toBe(16); // bits per sample
     expect(chunkId(36)).toBe('data');
     expect(view.getUint32(40, true)).toBe(samples.length * 2);
@@ -217,6 +223,17 @@ describe('useVoice — recording and transcription', () => {
     expect(view.getInt16(44 + 0 * 2, true)).toBe(0); // 0 -> 0
     expect(view.getInt16(44 + 1 * 2, true)).toBe(0x7fff); // 1 -> +32767
     expect(view.getInt16(44 + 2 * 2, true)).toBe(-0x8000); // -1 -> -32768
+  });
+
+  it('creates the recording AudioContext at 16 kHz (whisper.cpp requires it)', async () => {
+    ai.transcribeAudio.mockResolvedValue({ ok: true, text: 'ok' });
+    const { result } = renderHook(() => useVoice({ messages: [], sending: false, sendMessage: vi.fn() }));
+
+    await act(async () => {
+      await result.current.toggleRecording();
+    });
+
+    expect(audioContextOptions.at(-1)).toEqual({ sampleRate: 16000 });
   });
 
   it('does not start recording (or call getUserMedia) when a turn is already in flight', async () => {
